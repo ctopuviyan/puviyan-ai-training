@@ -40,8 +40,8 @@ Usage in Google Colab:
 2. Download this script (FORCE OVERWRITE):
    !wget -O train_soil_classifier.py https://raw.githubusercontent.com/ctopuviyan/puviyan-ai-training/main/scripts/train_soil_classifier.py
 
-3. Verify download (should show v3.2.0):
-   !head -20 train_soil_classifier.py | grep "3.2.0"
+3. Verify download (should show v3.3.0):
+   !head -20 train_soil_classifier.py | grep "3.3.0"
 
 4. Run training (will prompt for dataset choice):
    !python train_soil_classifier.py
@@ -51,7 +51,7 @@ Usage in Google Colab:
 6. Download generated files (model, metadata, plots)
 
 Author: Puviyan AI Team
-Version: 3.2.0 (GPU Optimized + Memory Efficient + TensorFlow Compatible)
+Version: 3.3.0 (Runtime Processing Mode Selection + Full GPU Utilization)
 License: MIT
 Repository: https://github.com/ctopuviyan/puviyan-ai-training
 """
@@ -76,7 +76,7 @@ NUM_CLASSES = 8
 BATCH_SIZE = 32  # Optimized for GPU (increased from 16)
 EPOCHS = 30      # Reduced for faster training
 LEARNING_RATE = 0.001
-SCRIPT_VERSION = "3.2.0"  # GPU optimized + TensorFlow compatibility fixes
+SCRIPT_VERSION = "3.3.0"  # Added runtime processing mode selection (batch vs full GPU)
 MAX_IMAGES_PER_CLASS = 200  # Limit images per class to prevent memory issues
 
 # Indian soil type labels
@@ -204,6 +204,39 @@ def setup_dataset_choice():
     except ImportError:
         print("ℹ️ Not in Colab - checking for local dataset...")
         return check_local_dataset()
+
+def setup_processing_mode():
+    """Setup processing mode for GPU optimization"""
+    print("\n⚡ Processing Mode Options:")
+    print("1. 🔋 Memory-Efficient Mode (Batch Processing)")
+    print("   - Uses data generators")
+    print("   - Lower GPU utilization but handles large datasets")
+    print("   - Recommended for datasets > 1000 images")
+    print("   - Memory usage: ~100MB")
+    print()
+    print("2. 🚀 GPU-Optimized Mode (Full Loading)")
+    print("   - Loads all images into GPU memory")
+    print("   - Maximum GPU utilization and speed")
+    print("   - Recommended for datasets < 1000 images")
+    print("   - Memory usage: ~2-4GB")
+    print()
+    print("3. 🎯 Auto Mode (Recommended)")
+    print("   - Automatically chooses based on dataset size")
+    print("   - < 1000 images: GPU-Optimized")
+    print("   - > 1000 images: Memory-Efficient")
+    print()
+    
+    mode_choice = input("Choose processing mode (1 for memory-efficient, 2 for GPU-optimized, 3 for auto): ").strip()
+    
+    if mode_choice == "1":
+        print("🔋 Selected: Memory-Efficient Mode (Batch Processing)")
+        return "batch"
+    elif mode_choice == "2":
+        print("🚀 Selected: GPU-Optimized Mode (Full Loading)")
+        return "full"
+    else:
+        print("🎯 Selected: Auto Mode (Will decide based on dataset size)")
+        return "auto"
 
 def setup_manual_dataset_upload():
     """Handle manual dataset upload in Colab (bypass automatic upload)"""
@@ -585,6 +618,51 @@ def process_local_dataset(dataset_dir):
     
     return True
 
+def load_full_dataset_to_memory(image_paths, labels):
+    """Load full dataset into memory for GPU optimization"""
+    print("🚀 Loading full dataset into GPU memory for maximum performance...")
+    
+    from PIL import Image
+    
+    total_images = len(image_paths)
+    print(f"📊 Loading {total_images} images into memory...")
+    
+    # Pre-allocate arrays
+    X = np.zeros((total_images, INPUT_SIZE, INPUT_SIZE, 3), dtype=np.float32)
+    y = np.zeros(total_images, dtype=np.int32)
+    
+    # Load images with progress tracking
+    loaded_count = 0
+    failed_count = 0
+    
+    for i, (img_path, label) in enumerate(zip(image_paths, labels)):
+        try:
+            # Load and preprocess image
+            img = Image.open(img_path).convert('RGB')
+            img = img.resize((INPUT_SIZE, INPUT_SIZE))
+            img_array = np.array(img, dtype=np.float32) / 255.0
+            
+            X[i] = img_array
+            y[i] = label
+            loaded_count += 1
+            
+            # Show progress every 100 images
+            if (i + 1) % 100 == 0 or (i + 1) == total_images:
+                progress = (i + 1) / total_images * 100
+                print(f"   📸 Progress: {i + 1}/{total_images} ({progress:.1f}%) - {loaded_count} loaded, {failed_count} failed")
+                
+        except Exception as e:
+            print(f"   ⚠️ Failed to load {img_path}: {e}")
+            # Fill with zeros for failed images
+            X[i] = np.zeros((INPUT_SIZE, INPUT_SIZE, 3))
+            y[i] = 0
+            failed_count += 1
+    
+    print(f"✅ Dataset loaded: {loaded_count} images successfully, {failed_count} failed")
+    print(f"📊 Memory usage: ~{X.nbytes / (1024**2):.1f} MB")
+    
+    return X, y
+
 # Global variables for real dataset (now using paths instead of loaded images)
 real_dataset_paths = None
 real_dataset_labels = None
@@ -906,8 +984,14 @@ def convert_to_tflite(model, output_path):
     """Convert Keras model to TensorFlow Lite"""
     print("📱 Converting to TensorFlow Lite...")
     
-    # Convert to TensorFlow Lite
+    # Convert to TensorFlow Lite with TF Select ops for compatibility
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    
+    # Enable TF Select ops to handle BatchNormalization and other ops
+    converter.target_spec.supported_ops = [
+        tf.lite.OpsSet.TFLITE_BUILTINS,  # Standard TFLite ops
+        tf.lite.OpsSet.SELECT_TF_OPS     # TensorFlow ops (for BatchNorm, etc.)
+    ]
     
     # Optimize for mobile deployment
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
@@ -1318,9 +1402,9 @@ def show_download_instructions():
     print("# 📥 Download latest version (FORCE OVERWRITE)")  
     print("!wget -O train_soil_classifier.py https://raw.githubusercontent.com/ctopuviyan/puviyan-ai-training/main/scripts/train_soil_classifier.py")
     print()
-    print("# ✅ Verify download (should show v3.2.0)")
+    print("# ✅ Verify download (should show v3.3.0)")
     print("!ls -la train_soil_classifier.py")
-    print("!head -20 train_soil_classifier.py | grep '3.2.0'")
+    print("!head -20 train_soil_classifier.py | grep '3.3.0'")
     print()
     print("# 🚀 Run training (will show dataset choice)")
     print("!python train_soil_classifier.py")
@@ -1427,9 +1511,25 @@ def main():
     # Setup dataset choice
     use_real_data = setup_dataset_choice()
     
+    # Setup processing mode if using real data
+    processing_mode = "batch"  # default
+    if use_real_data and real_dataset_paths is not None:
+        processing_mode = setup_processing_mode()
+    
     # Create dataset
     if use_real_data and real_dataset_paths is not None:
         print("🚀 Using real soil dataset for training...")
+        
+        # Decide processing mode based on dataset size and user choice
+        dataset_size = len(real_dataset_paths)
+        
+        if processing_mode == "auto":
+            if dataset_size < 1000:
+                processing_mode = "full"
+                print(f"🎯 Auto mode: Dataset size ({dataset_size}) < 1000, using GPU-Optimized mode")
+            else:
+                processing_mode = "batch"
+                print(f"🎯 Auto mode: Dataset size ({dataset_size}) >= 1000, using Memory-Efficient mode")
         
         # Split dataset paths and labels
         train_paths, val_paths, train_labels, val_labels = train_test_split(
@@ -1443,29 +1543,45 @@ def main():
         print(f"   Training: {len(train_paths)} samples")
         print(f"   Validation: {len(val_paths)} samples")
         
-        # Create data generators (memory efficient)
-        print("🔄 Creating data generators...")
-        train_generator = SoilDataGenerator(
-            train_paths, train_labels,
-            batch_size=BATCH_SIZE,
-            input_size=INPUT_SIZE,
-            shuffle=True,
-            augment=True  # Enable augmentation for training
-        )
-        
-        val_generator = SoilDataGenerator(
-            val_paths, val_labels,
-            batch_size=BATCH_SIZE,
-            input_size=INPUT_SIZE,
-            shuffle=False,
-            augment=False  # No augmentation for validation
-        )
-        
-        print(f"✅ Generators created:")
-        print(f"   Training batches: {len(train_generator)}")
-        print(f"   Validation batches: {len(val_generator)}")
-        
-        use_generators = True
+        if processing_mode == "full":
+            # GPU-Optimized Mode: Load all data into memory
+            print("🚀 GPU-Optimized Mode: Loading full dataset into memory...")
+            
+            # Load training data
+            X_train, y_train = load_full_dataset_to_memory(train_paths, train_labels)
+            X_val, y_val = load_full_dataset_to_memory(val_paths, val_labels)
+            
+            train_data = (X_train, y_train)
+            val_data = (X_val, y_val)
+            use_generators = False
+            
+            print("✅ Full dataset loaded into GPU memory for maximum performance!")
+            
+        else:
+            # Memory-Efficient Mode: Use data generators
+            print("🔋 Memory-Efficient Mode: Using data generators...")
+            
+            train_generator = SoilDataGenerator(
+                train_paths, train_labels,
+                batch_size=BATCH_SIZE,
+                input_size=INPUT_SIZE,
+                shuffle=True,
+                augment=True  # Enable augmentation for training
+            )
+            
+            val_generator = SoilDataGenerator(
+                val_paths, val_labels,
+                batch_size=BATCH_SIZE,
+                input_size=INPUT_SIZE,
+                shuffle=False,
+                augment=False  # No augmentation for validation
+            )
+            
+            print(f"✅ Generators created:")
+            print(f"   Training batches: {len(train_generator)}")
+            print(f"   Validation batches: {len(val_generator)}")
+            
+            use_generators = True
         
     else:
         print("🎨 Using synthetic dataset generation...")
@@ -1474,11 +1590,11 @@ def main():
     
     # Create and train model
     if use_generators:
-        # Real dataset uses one-hot encoded labels (categorical_crossentropy)
+        # Real dataset with generators uses one-hot encoded labels (categorical_crossentropy)
         model = create_model(use_sparse_labels=False)
         history = train_model_with_generators(model, train_generator, val_generator)
     else:
-        # Synthetic dataset uses integer labels (sparse_categorical_crossentropy)
+        # Full dataset or synthetic uses integer labels (sparse_categorical_crossentropy)
         model = create_model(use_sparse_labels=True)
         history = train_model(model, train_data, val_data)
     
