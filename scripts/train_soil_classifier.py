@@ -40,8 +40,8 @@ Usage in Google Colab:
 2. Download this script (FORCE OVERWRITE):
    !wget -O train_soil_classifier.py https://raw.githubusercontent.com/ctopuviyan/puviyan-ai-training/main/scripts/train_soil_classifier.py
 
-3. Verify download (should show v3.0.0):
-   !head -20 train_soil_classifier.py | grep "3.0.0"
+3. Verify download (should show v3.2.0):
+   !head -20 train_soil_classifier.py | grep "3.2.0"
 
 4. Run training (will prompt for dataset choice):
    !python train_soil_classifier.py
@@ -51,7 +51,7 @@ Usage in Google Colab:
 6. Download generated files (model, metadata, plots)
 
 Author: Puviyan AI Team
-Version: 3.0.0 (Real Dataset Support)
+Version: 3.2.0 (GPU Optimized + Memory Efficient + TensorFlow Compatible)
 License: MIT
 Repository: https://github.com/ctopuviyan/puviyan-ai-training
 """
@@ -1318,9 +1318,9 @@ def show_download_instructions():
     print("# 📥 Download latest version (FORCE OVERWRITE)")  
     print("!wget -O train_soil_classifier.py https://raw.githubusercontent.com/ctopuviyan/puviyan-ai-training/main/scripts/train_soil_classifier.py")
     print()
-    print("# ✅ Verify download (should show v3.0.0)")
+    print("# ✅ Verify download (should show v3.2.0)")
     print("!ls -la train_soil_classifier.py")
-    print("!head -20 train_soil_classifier.py | grep '3.0.0'")
+    print("!head -20 train_soil_classifier.py | grep '3.2.0'")
     print()
     print("# 🚀 Run training (will show dataset choice)")
     print("!python train_soil_classifier.py")
