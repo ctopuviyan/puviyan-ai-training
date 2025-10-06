@@ -417,51 +417,100 @@ def process_local_dataset(dataset_dir):
     
     print(f"📊 Processing dataset in {dataset_dir}...")
     
+    # First, let's explore the directory structure
+    print(f"🔍 DEBUGGING: Exploring directory structure...")
+    for root, dirs, files in os.walk(dataset_dir):
+        level = root.replace(dataset_dir, '').count(os.sep)
+        indent = ' ' * 2 * level
+        print(f'{indent}📁 {os.path.basename(root)}/ ({len(files)} files)')
+        
+        # Show first few files in each directory
+        subindent = ' ' * 2 * (level + 1)
+        for file in files[:5]:  # Show first 5 files
+            print(f'{subindent}📄 {file}')
+        if len(files) > 5:
+            print(f'{subindent}... and {len(files) - 5} more files')
+    
     # Find image files and map to soil types
-    image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff'}
+    image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'}
     dataset = {'images': [], 'labels': []}
+    
+    print(f"\n🔍 DEBUGGING: Looking for soil type folders...")
     
     for root, dirs, files in os.walk(dataset_dir):
         folder_name = os.path.basename(root).lower()
         
+        # Skip the root dataset directory
+        if root == dataset_dir:
+            print(f"📁 Root directory contains: {dirs}")
+            continue
+        
+        print(f"🔍 Checking folder: '{folder_name}'")
+        
         # Map folder name to soil type
         soil_class = None
+        matched_keyword = None
         for keyword, class_id in FOLDER_MAPPINGS.items():
             if keyword in folder_name:
                 soil_class = class_id
+                matched_keyword = keyword
                 break
         
         if soil_class is None:
+            print(f"   ❌ No mapping found for folder '{folder_name}'")
+            print(f"   💡 Available keywords: {list(FOLDER_MAPPINGS.keys())}")
+            continue
+        
+        print(f"   ✅ Mapped '{folder_name}' → {SOIL_LABELS[soil_class]} (keyword: '{matched_keyword}')")
+        
+        # Count image files
+        image_files = [f for f in files if any(f.lower().endswith(ext) for ext in image_extensions)]
+        print(f"   📸 Found {len(image_files)} image files (out of {len(files)} total files)")
+        
+        if not image_files:
+            print(f"   ⚠️ No image files found in {folder_name}")
             continue
             
         print(f"📂 Processing {SOIL_LABELS[soil_class]} ({folder_name})...")
         
         image_count = 0
-        for filename in files:
-            if any(filename.lower().endswith(ext) for ext in image_extensions):
-                img_path = os.path.join(root, filename)
+        for filename in image_files:
+            img_path = os.path.join(root, filename)
+            
+            try:
+                # Load and preprocess image
+                img = Image.open(img_path).convert('RGB')
+                img = img.resize((INPUT_SIZE, INPUT_SIZE))
+                img_array = np.array(img) / 255.0
                 
-                try:
-                    # Load and preprocess image
-                    img = Image.open(img_path).convert('RGB')
-                    img = img.resize((INPUT_SIZE, INPUT_SIZE))
-                    img_array = np.array(img) / 255.0
-                    
-                    dataset['images'].append(img_array)
-                    dataset['labels'].append(soil_class)
-                    image_count += 1
-                    
-                except Exception as e:
-                    print(f"⚠️ Error loading {img_path}: {e}")
-                    continue
+                dataset['images'].append(img_array)
+                dataset['labels'].append(soil_class)
+                image_count += 1
+                
+                # Show progress for first few images
+                if image_count <= 3:
+                    print(f"   📸 Loaded: {filename} ({img.size} → {INPUT_SIZE}x{INPUT_SIZE})")
+                
+            except Exception as e:
+                print(f"   ⚠️ Error loading {filename}: {e}")
+                continue
         
         if image_count > 0:
-            print(f"   ✅ Loaded {image_count} images")
+            print(f"   ✅ Successfully loaded {image_count} images")
         else:
-            print(f"   ❌ No valid images found")
+            print(f"   ❌ No valid images found in {folder_name}")
     
     if not dataset['images']:
-        print("❌ No images loaded successfully. Using synthetic dataset.")
+        print("\n❌ DEBUGGING SUMMARY:")
+        print("   No images were loaded successfully.")
+        print("   Possible issues:")
+        print("   1. Folder names don't match expected patterns")
+        print("   2. No image files in the folders")
+        print("   3. Image files are corrupted or unsupported format")
+        print("   4. ZIP structure is not as expected")
+        print("\n💡 Expected folder structure:")
+        for keyword, class_id in FOLDER_MAPPINGS.items():
+            print(f"   📁 {keyword} → {SOIL_LABELS[class_id]}")
         return False
     
     # Convert to numpy arrays and save globally
