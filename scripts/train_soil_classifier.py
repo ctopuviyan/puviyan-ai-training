@@ -874,10 +874,7 @@ def train_model_with_generators(model, train_generator, val_generator):
             epochs=EPOCHS,
             validation_data=val_generator,
             callbacks=callbacks,
-            verbose=1,
-            workers=2 if gpus else 1,  # More workers for GPU
-            use_multiprocessing=False,
-            max_queue_size=20 if gpus else 10  # Larger queue for GPU
+            verbose=1
         )
         
         print("✅ Training completed successfully!")
@@ -896,8 +893,8 @@ def train_model_with_generators(model, train_generator, val_generator):
         print(f"   - Training batches: {len(train_generator) if 'train_generator' in locals() else 'Not created'}")
         print(f"   - Validation batches: {len(val_generator) if 'val_generator' in locals() else 'Not created'}")
         print("💡 Possible solutions:")
-        print("1. Reduce MAX_IMAGES_PER_CLASS (currently {MAX_IMAGES_PER_CLASS})")
-        print("2. Reduce BATCH_SIZE (currently {BATCH_SIZE})")
+        print(f"1. Reduce MAX_IMAGES_PER_CLASS (currently {MAX_IMAGES_PER_CLASS})")
+        print(f"2. Reduce BATCH_SIZE (currently {BATCH_SIZE})")
         print("3. Try with synthetic data first to test the pipeline")
         raise
 
