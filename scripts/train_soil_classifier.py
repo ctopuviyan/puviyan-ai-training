@@ -163,9 +163,57 @@ def setup_real_dataset_upload():
         import sys
         sys.stdout.flush()
         
-        # Trigger file upload with explicit message
+        # Trigger file upload with better error handling
         print("📤 Waiting for file upload...")
-        uploaded = files.upload()
+        
+        # Try multiple approaches for file upload
+        uploaded = None
+        try:
+            # Method 1: Standard upload
+            uploaded = files.upload()
+        except Exception as e1:
+            print(f"⚠️ Standard upload failed: {e1}")
+            print("🔄 Trying alternative upload method...")
+            
+            try:
+                # Method 2: Force display and upload
+                from IPython.display import display, HTML
+                display(HTML('<p>📤 Please use the file upload button below:</p>'))
+                uploaded = files.upload()
+            except Exception as e2:
+                print(f"⚠️ Alternative upload failed: {e2}")
+                print("🔄 Trying manual approach...")
+                
+                try:
+                    # Method 3: Manual widget approach
+                    import ipywidgets as widgets
+                    from IPython.display import display
+                    
+                    print("📤 Manual file upload - click 'Choose Files' button:")
+                    uploader = widgets.FileUpload(
+                        accept='.zip',
+                        multiple=False,
+                        description='Upload ZIP'
+                    )
+                    display(uploader)
+                    
+                    # Wait for upload (this is a simplified approach)
+                    print("⏳ After selecting your file, run the next cell to continue...")
+                    print("💡 Or try restarting runtime and running again")
+                    return False
+                    
+                except Exception as e3:
+                    print(f"⚠️ Manual upload also failed: {e3}")
+                    print("🔧 TROUBLESHOOTING STEPS:")
+                    print("1. Restart runtime: Runtime > Restart runtime")
+                    print("2. Clear outputs: Edit > Clear all outputs") 
+                    print("3. Run cells again from the beginning")
+                    print("4. Try a different browser (Chrome recommended)")
+                    print("5. Check if pop-ups are blocked")
+                    print()
+                    print("📋 ALTERNATIVE: Use manual upload method")
+                    manual_upload_instructions()
+                    return False
         
         if not uploaded:
             print("❌ No files were uploaded.")
@@ -198,6 +246,38 @@ def setup_real_dataset_upload():
         print("💡 Try refreshing the page and running again")
         print("💡 Make sure your ZIP file is not too large (< 25MB recommended)")
         return False
+
+def manual_upload_instructions():
+    """Provide manual upload instructions as fallback"""
+    print("📋 MANUAL UPLOAD ALTERNATIVE")
+    print("=" * 40)
+    print("If automatic upload fails, try this approach:")
+    print()
+    print("1. 📁 In Colab, click the folder icon on the left sidebar")
+    print("2. 📤 Click the upload button (folder with up arrow)")
+    print("3. 🗂️ Select your soil_dataset.zip file")
+    print("4. ⏳ Wait for upload to complete")
+    print("5. ✅ Your file will appear in the file list")
+    print()
+    print("Then run this code to process your uploaded dataset:")
+    print("```python")
+    print("# Process manually uploaded dataset")
+    print("import zipfile")
+    print("import os")
+    print()
+    print("# Extract the ZIP file")
+    print("with zipfile.ZipFile('soil_dataset.zip', 'r') as zip_ref:")
+    print("    zip_ref.extractall('real_soil_dataset')")
+    print()
+    print("# List extracted contents")
+    print("for root, dirs, files in os.walk('real_soil_dataset'):")
+    print("    level = root.replace('real_soil_dataset', '').count(os.sep)")
+    print("    indent = ' ' * 2 * level")
+    print("    print(f'{indent}{os.path.basename(root)}/')")
+    print("    subindent = ' ' * 2 * (level + 1)")
+    print("    for file in files[:3]:  # Show first 3 files")
+    print("        print(f'{subindent}{file}')")
+    print("```")
 
 def test_colab_upload():
     """Simple test function to verify Colab file upload works"""
