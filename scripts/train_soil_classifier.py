@@ -50,6 +50,13 @@ Usage in Google Colab:
 
 6. Download generated files (model, metadata, plots)
 
+Author: Puviyan AI Team
+Version: 3.0.0 (Real Dataset Support)
+License: MIT
+Repository: https://github.com/ctopuviyan/puviyan-ai-training
+"""
+
+import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 import numpy as np
@@ -59,6 +66,7 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import subprocess
 import shutil
+from sklearn.model_selection import train_test_split
 
 # Configuration
 MODEL_NAME = "soil_classifier_lite"
@@ -902,7 +910,6 @@ def main():
     if use_real_data and real_dataset_X is not None:
         print("🚀 Using real soil dataset for training...")
         # Split real dataset
-        from sklearn.model_selection import train_test_split
         X_train, X_val, y_train, y_val = train_test_split(
             real_dataset_X, real_dataset_y, 
             test_size=0.2, 
