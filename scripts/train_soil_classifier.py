@@ -73,7 +73,7 @@ import random
 MODEL_NAME = "soil_classifier_lite"
 INPUT_SIZE = 224
 NUM_CLASSES = 8
-BATCH_SIZE = 16  # Reduced for better memory management
+BATCH_SIZE = 32  # Optimized for GPU (increased from 16)
 EPOCHS = 30      # Reduced for faster training
 LEARNING_RATE = 0.001
 SCRIPT_VERSION = "3.1.0"  # Updated with batch processing and memory optimization
@@ -733,14 +733,23 @@ def create_synthetic_dataset():
     return (X_train, y_train), (X_val, y_val)
 
 def create_model():
-    """Create the soil classification model"""
+    """Create the soil classification model optimized for GPU"""
     print("🏗️ Creating soil classification model...")
+    
+    # Enable mixed precision for GPU optimization (if available)
+    try:
+        if tf.config.list_physical_devices('GPU'):
+            policy = tf.keras.mixed_precision.Policy('mixed_float16')
+            tf.keras.mixed_precision.set_global_policy(policy)
+            print("✅ Mixed precision enabled for faster GPU training")
+    except:
+        print("ℹ️ Mixed precision not available, using float32")
     
     model = keras.Sequential([
         # Input layer
         layers.Input(shape=(INPUT_SIZE, INPUT_SIZE, 3)),
         
-        # Feature extraction layers (MobileNet-inspired for efficiency)
+        # Feature extraction layers (GPU-optimized with BatchNorm)
         layers.Conv2D(32, 3, strides=2, padding='same', activation='relu'),
         layers.BatchNormalization(),
         
@@ -762,18 +771,27 @@ def create_model():
         # Classification head
         layers.Dropout(0.5),
         layers.Dense(128, activation='relu'),
+        layers.BatchNormalization(),
         layers.Dropout(0.3),
-        layers.Dense(NUM_CLASSES, activation='softmax')
+        layers.Dense(NUM_CLASSES, activation='softmax', dtype='float32')  # Keep output as float32
     ])
     
-    # Compile model
+    # Compile model with GPU-optimized settings
+    optimizer = keras.optimizers.Adam(
+        learning_rate=LEARNING_RATE,
+        beta_1=0.9,
+        beta_2=0.999,
+        epsilon=1e-7
+    )
+    
     model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
+        optimizer=optimizer,
         loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
     
-    print("✅ Model created")
+    print("✅ Model created with GPU optimizations")
+    print(f"📊 Total parameters: {model.count_params():,}")
     model.summary()
     return model
 
@@ -840,17 +858,26 @@ def train_model_with_generators(model, train_generator, val_generator):
         ]
         
         print("🎯 Starting training process...")
-        print(f"⏱️ Estimated time: {EPOCHS} epochs × ~2 minutes = ~{EPOCHS*2//60} hours")
         
-        # Train model with generators
+        # Check GPU utilization before training
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            print(f"⚡ Training with GPU acceleration on {len(gpus)} device(s)")
+            print(f"⏱️ Estimated time: {EPOCHS} epochs × ~2 minutes = ~{EPOCHS*2} minutes")
+        else:
+            print("🐌 Training with CPU (no GPU detected)")
+            print(f"⏱️ Estimated time: {EPOCHS} epochs × ~15 minutes = ~{EPOCHS*15} minutes")
+        
+        # Train model with generators (GPU optimized)
         history = model.fit(
             train_generator,
             epochs=EPOCHS,
             validation_data=val_generator,
             callbacks=callbacks,
             verbose=1,
-            workers=1,  # Single worker to avoid memory issues
-            use_multiprocessing=False
+            workers=2 if gpus else 1,  # More workers for GPU
+            use_multiprocessing=False,
+            max_queue_size=20 if gpus else 10  # Larger queue for GPU
         )
         
         print("✅ Training completed successfully!")
@@ -1300,6 +1327,50 @@ def show_download_instructions():
     print("✅ This prevents the common .py.1, .py.2 filename issue!")
     print("="*60)
 
+def setup_gpu_optimization():
+    """Configure GPU for optimal performance"""
+    print("🚀 Setting up GPU optimization...")
+    
+    # Get available GPUs
+    gpus = tf.config.list_physical_devices('GPU')
+    
+    if gpus:
+        try:
+            # Enable memory growth to prevent GPU memory allocation issues
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            
+            # Set GPU as preferred device
+            tf.config.set_visible_devices(gpus, 'GPU')
+            
+            print(f"✅ GPU optimization enabled for {len(gpus)} device(s)")
+            
+            # Check GPU memory
+            try:
+                import subprocess
+                result = subprocess.run(['nvidia-smi', '--query-gpu=memory.total,memory.free', '--format=csv,nounits,noheader'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    lines = result.stdout.strip().split('\n')
+                    for i, line in enumerate(lines):
+                        total, free = line.split(', ')
+                        print(f"   GPU {i}: {free}MB free / {total}MB total")
+                else:
+                    print("   GPU memory info not available")
+            except:
+                print("   GPU memory info not available")
+                
+            return True
+            
+        except RuntimeError as e:
+            print(f"⚠️ GPU setup warning: {e}")
+            print("   Continuing with default GPU settings...")
+            return True
+    else:
+        print("❌ No GPU detected - training will use CPU (much slower)")
+        print("💡 In Colab: Runtime > Change runtime type > GPU")
+        return False
+
 def check_environment():
     """Check if running in appropriate environment"""
     print(f"🌱 Puviyan Soil Detection Training v{SCRIPT_VERSION}")
@@ -1314,23 +1385,27 @@ def check_environment():
         print("ℹ️ Not running in Google Colab")
         colab_env = False
     
-    # Check TensorFlow and GPU
+    # Check TensorFlow version
     print(f"✅ TensorFlow: {tf.__version__}")
-    gpus = tf.config.list_physical_devices('GPU')
-    if gpus:
-        print(f"✅ GPU Available: {len(gpus)} device(s)")
-        for i, gpu in enumerate(gpus):
-            print(f"   GPU {i}: {gpu.name}")
-    else:
-        print("⚠️ No GPU detected - training will be slower")
+    
+    # Setup GPU optimization
+    gpu_available = setup_gpu_optimization()
     
     # Check available memory
     try:
         import psutil
         memory = psutil.virtual_memory()
-        print(f"✅ RAM: {memory.total / (1024**3):.1f} GB available")
+        print(f"✅ RAM: {memory.total / (1024**3):.1f} GB total, {memory.available / (1024**3):.1f} GB available")
     except ImportError:
         print("ℹ️ Memory info not available")
+    
+    # Performance recommendations
+    if gpu_available:
+        print("🚀 Performance mode: GPU-accelerated training")
+        print(f"⚡ Expected training time: ~{EPOCHS * 2} minutes with GPU")
+    else:
+        print("🐌 Performance mode: CPU-only training")
+        print(f"⏱️ Expected training time: ~{EPOCHS * 15} minutes with CPU")
     
     print("="*60)
     return colab_env
