@@ -67,15 +67,17 @@ import matplotlib.pyplot as plt
 import subprocess
 import shutil
 from sklearn.model_selection import train_test_split
+import random
 
 # Configuration
 MODEL_NAME = "soil_classifier_lite"
 INPUT_SIZE = 224
 NUM_CLASSES = 8
-BATCH_SIZE = 32
-EPOCHS = 50
+BATCH_SIZE = 16  # Reduced for better memory management
+EPOCHS = 30      # Reduced for faster training
 LEARNING_RATE = 0.001
-SCRIPT_VERSION = "3.0.0"  # Updated with GitHub upload and download fix
+SCRIPT_VERSION = "3.1.0"  # Updated with batch processing and memory optimization
+MAX_IMAGES_PER_CLASS = 200  # Limit images per class to prevent memory issues
 
 # Indian soil type labels
 SOIL_LABELS = {
@@ -100,6 +102,83 @@ FOLDER_MAPPINGS = {
     "peaty": 6, "marshy": 6, "peaty_marshy": 6, "organic": 6,
     "forest": 7, "hill": 7, "forest_hill": 7, "mountain": 7
 }
+
+class SoilDataGenerator(tf.keras.utils.Sequence):
+    """Memory-efficient data generator for soil images"""
+    
+    def __init__(self, image_paths, labels, batch_size=16, input_size=224, shuffle=True, augment=False):
+        self.image_paths = image_paths
+        self.labels = labels
+        self.batch_size = batch_size
+        self.input_size = input_size
+        self.shuffle = shuffle
+        self.augment = augment
+        self.indices = np.arange(len(self.image_paths))
+        
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+    
+    def __len__(self):
+        """Number of batches per epoch"""
+        return int(np.ceil(len(self.image_paths) / self.batch_size))
+    
+    def __getitem__(self, idx):
+        """Generate one batch of data"""
+        # Get batch indices
+        start_idx = idx * self.batch_size
+        end_idx = min((idx + 1) * self.batch_size, len(self.image_paths))
+        batch_indices = self.indices[start_idx:end_idx]
+        
+        # Initialize batch arrays
+        batch_size = len(batch_indices)
+        X = np.zeros((batch_size, self.input_size, self.input_size, 3), dtype=np.float32)
+        y = np.zeros((batch_size, NUM_CLASSES), dtype=np.float32)
+        
+        # Load and process images
+        for i, idx in enumerate(batch_indices):
+            try:
+                # Load image
+                from PIL import Image
+                img = Image.open(self.image_paths[idx]).convert('RGB')
+                
+                # Resize image
+                img = img.resize((self.input_size, self.input_size))
+                
+                # Convert to array and normalize
+                img_array = np.array(img, dtype=np.float32) / 255.0
+                
+                # Apply augmentation if enabled
+                if self.augment:
+                    img_array = self._augment_image(img_array)
+                
+                X[i] = img_array
+                y[i] = tf.keras.utils.to_categorical(self.labels[idx], NUM_CLASSES)
+                
+            except Exception as e:
+                print(f"⚠️ Error loading image {self.image_paths[idx]}: {e}")
+                # Fill with zeros if image fails to load
+                X[i] = np.zeros((self.input_size, self.input_size, 3))
+                y[i] = tf.keras.utils.to_categorical(0, NUM_CLASSES)
+        
+        return X, y
+    
+    def _augment_image(self, img_array):
+        """Apply simple data augmentation"""
+        # Random horizontal flip
+        if np.random.random() > 0.5:
+            img_array = np.fliplr(img_array)
+        
+        # Random brightness adjustment
+        if np.random.random() > 0.5:
+            brightness_factor = np.random.uniform(0.8, 1.2)
+            img_array = np.clip(img_array * brightness_factor, 0, 1)
+        
+        return img_array
+    
+    def on_epoch_end(self):
+        """Shuffle indices after each epoch"""
+        if self.shuffle:
+            np.random.shuffle(self.indices)
 
 def setup_dataset_choice():
     """Setup dataset choice for Colab users"""
@@ -412,37 +491,23 @@ def extract_and_process_dataset(zip_filename):
     return process_local_dataset(dataset_dir)
 
 def process_local_dataset(dataset_dir):
-    """Process local dataset directory"""
-    from PIL import Image
-    
+    """Process local dataset directory - Memory efficient version"""
     print(f"📊 Processing dataset in {dataset_dir}...")
-    
-    # First, let's explore the directory structure
-    print(f"🔍 DEBUGGING: Exploring directory structure...")
-    for root, dirs, files in os.walk(dataset_dir):
-        level = root.replace(dataset_dir, '').count(os.sep)
-        indent = ' ' * 2 * level
-        print(f'{indent}📁 {os.path.basename(root)}/ ({len(files)} files)')
-        
-        # Show first few files in each directory
-        subindent = ' ' * 2 * (level + 1)
-        for file in files[:5]:  # Show first 5 files
-            print(f'{subindent}📄 {file}')
-        if len(files) > 5:
-            print(f'{subindent}... and {len(files) - 5} more files')
     
     # Find image files and map to soil types
     image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'}
-    dataset = {'images': [], 'labels': []}
+    image_paths = []
+    labels = []
     
-    print(f"\n🔍 DEBUGGING: Looking for soil type folders...")
+    print(f"🔍 Looking for soil type folders...")
     
     for root, dirs, files in os.walk(dataset_dir):
         folder_name = os.path.basename(root).lower()
         
-        # Skip the root dataset directory
-        if root == dataset_dir:
-            print(f"📁 Root directory contains: {dirs}")
+        # Skip the root dataset directory and __MACOSX folders
+        if root == dataset_dir or '__MACOSX' in root:
+            if root == dataset_dir:
+                print(f"📁 Root directory contains: {dirs}")
             continue
         
         print(f"🔍 Checking folder: '{folder_name}'")
@@ -463,74 +528,66 @@ def process_local_dataset(dataset_dir):
         
         print(f"   ✅ Mapped '{folder_name}' → {SOIL_LABELS[soil_class]} (keyword: '{matched_keyword}')")
         
-        # Count image files
+        # Get image files
         image_files = [f for f in files if any(f.lower().endswith(ext) for ext in image_extensions)]
-        print(f"   📸 Found {len(image_files)} image files (out of {len(files)} total files)")
+        print(f"   📸 Found {len(image_files)} image files")
         
         if not image_files:
             print(f"   ⚠️ No image files found in {folder_name}")
             continue
-            
-        print(f"📂 Processing {SOIL_LABELS[soil_class]} ({folder_name})...")
         
-        image_count = 0
+        # Limit images per class to prevent memory issues
+        if len(image_files) > MAX_IMAGES_PER_CLASS:
+            print(f"   📊 Limiting to {MAX_IMAGES_PER_CLASS} images (from {len(image_files)})")
+            image_files = random.sample(image_files, MAX_IMAGES_PER_CLASS)
+        
+        # Add image paths and labels (don't load images yet)
+        class_image_count = 0
         for filename in image_files:
             img_path = os.path.join(root, filename)
             
+            # Quick validation - check if file exists and is readable
             try:
-                # Load and preprocess image
-                img = Image.open(img_path).convert('RGB')
-                img = img.resize((INPUT_SIZE, INPUT_SIZE))
-                img_array = np.array(img) / 255.0
+                from PIL import Image
+                with Image.open(img_path) as img:
+                    # Just check if we can open it, don't load into memory
+                    pass
                 
-                dataset['images'].append(img_array)
-                dataset['labels'].append(soil_class)
-                image_count += 1
-                
-                # Show progress for first few images
-                if image_count <= 3:
-                    print(f"   📸 Loaded: {filename} ({img.size} → {INPUT_SIZE}x{INPUT_SIZE})")
+                image_paths.append(img_path)
+                labels.append(soil_class)
+                class_image_count += 1
                 
             except Exception as e:
-                print(f"   ⚠️ Error loading {filename}: {e}")
+                print(f"   ⚠️ Skipping {filename}: {e}")
                 continue
         
-        if image_count > 0:
-            print(f"   ✅ Successfully loaded {image_count} images")
-        else:
-            print(f"   ❌ No valid images found in {folder_name}")
+        print(f"   ✅ Added {class_image_count} valid images from {SOIL_LABELS[soil_class]}")
     
-    if not dataset['images']:
-        print("\n❌ DEBUGGING SUMMARY:")
-        print("   No images were loaded successfully.")
-        print("   Possible issues:")
-        print("   1. Folder names don't match expected patterns")
-        print("   2. No image files in the folders")
-        print("   3. Image files are corrupted or unsupported format")
-        print("   4. ZIP structure is not as expected")
-        print("\n💡 Expected folder structure:")
+    if not image_paths:
+        print("\n❌ No valid images found!")
+        print("💡 Expected folder structure:")
         for keyword, class_id in FOLDER_MAPPINGS.items():
             print(f"   📁 {keyword} → {SOIL_LABELS[class_id]}")
         return False
     
-    # Convert to numpy arrays and save globally
-    global real_dataset_X, real_dataset_y
-    real_dataset_X = np.array(dataset['images'])
-    real_dataset_y = np.array(dataset['labels'])
+    # Store paths globally instead of loaded images
+    global real_dataset_paths, real_dataset_labels
+    real_dataset_paths = image_paths
+    real_dataset_labels = labels
     
-    print(f"✅ Real dataset loaded: {len(real_dataset_X)} images, {len(np.unique(real_dataset_y))} classes")
+    print(f"✅ Dataset prepared: {len(image_paths)} images, {len(np.unique(labels))} classes")
     
     # Show class distribution
-    unique, counts = np.unique(real_dataset_y, return_counts=True)
+    unique, counts = np.unique(labels, return_counts=True)
     print("📊 Class distribution:")
     for class_id, count in zip(unique, counts):
         print(f"   {SOIL_LABELS[class_id]}: {count} images")
     
     return True
 
-# Global variables for real dataset
-real_dataset_X = None
-real_dataset_y = None
+# Global variables for real dataset (now using paths instead of loaded images)
+real_dataset_paths = None
+real_dataset_labels = None
 
 def create_synthetic_dataset():
     """
@@ -755,6 +812,68 @@ def train_model(model, train_data, val_data):
     print("✅ Training completed")
     return history
 
+def train_model_with_generators(model, train_generator, val_generator):
+    """Train the soil classification model using data generators"""
+    print("🚀 Starting model training with data generators...")
+    
+    try:
+        print(f"📊 Training batches: {len(train_generator)}")
+        print(f"📊 Validation batches: {len(val_generator)}")
+        print(f"📊 Batch size: {BATCH_SIZE}")
+        print(f"📊 Epochs: {EPOCHS}")
+        
+        # Create callbacks
+        callbacks = [
+            keras.callbacks.EarlyStopping(
+                monitor='val_accuracy',
+                patience=10,
+                restore_best_weights=True,
+                verbose=1
+            ),
+            keras.callbacks.ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.5,
+                patience=5,
+                min_lr=1e-7,
+                verbose=1
+            )
+        ]
+        
+        print("🎯 Starting training process...")
+        print(f"⏱️ Estimated time: {EPOCHS} epochs × ~2 minutes = ~{EPOCHS*2//60} hours")
+        
+        # Train model with generators
+        history = model.fit(
+            train_generator,
+            epochs=EPOCHS,
+            validation_data=val_generator,
+            callbacks=callbacks,
+            verbose=1,
+            workers=1,  # Single worker to avoid memory issues
+            use_multiprocessing=False
+        )
+        
+        print("✅ Training completed successfully!")
+        return history
+        
+    except KeyboardInterrupt:
+        print("\n⚠️ Training interrupted by user (Ctrl+C)")
+        print("💡 You can:")
+        print("1. Restart the script and choose synthetic data for faster training")
+        print("2. Reduce EPOCHS or MAX_IMAGES_PER_CLASS in the script")
+        raise
+        
+    except Exception as e:
+        print(f"\n❌ Training failed with error: {e}")
+        print("🔍 Debugging info:")
+        print(f"   - Training batches: {len(train_generator) if 'train_generator' in locals() else 'Not created'}")
+        print(f"   - Validation batches: {len(val_generator) if 'val_generator' in locals() else 'Not created'}")
+        print("💡 Possible solutions:")
+        print("1. Reduce MAX_IMAGES_PER_CLASS (currently {MAX_IMAGES_PER_CLASS})")
+        print("2. Reduce BATCH_SIZE (currently {BATCH_SIZE})")
+        print("3. Try with synthetic data first to test the pipeline")
+        raise
+
 def convert_to_tflite(model, output_path):
     """Convert Keras model to TensorFlow Lite"""
     print("📱 Converting to TensorFlow Lite...")
@@ -820,6 +939,54 @@ def test_tflite_model(tflite_model, test_data):
     
     accuracy = correct_predictions / total_predictions
     print(f"✅ TensorFlow Lite model accuracy: {accuracy:.2%} ({correct_predictions}/{total_predictions})")
+    
+    return accuracy
+
+def test_tflite_model_with_generator(tflite_model, val_generator):
+    """Test the TensorFlow Lite model using data generator"""
+    print("🧪 Testing TensorFlow Lite model with generator...")
+    
+    # Create interpreter
+    interpreter = tf.lite.Interpreter(model_content=tflite_model)
+    interpreter.allocate_tensors()
+    
+    # Get input and output details
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    
+    correct_predictions = 0
+    total_predictions = 0
+    
+    print(f"📊 Testing on {len(val_generator)} batches...")
+    
+    # Test on validation generator
+    for batch_idx in range(len(val_generator)):
+        X_batch, y_batch = val_generator[batch_idx]
+        
+        for i in range(len(X_batch)):
+            # Prepare input
+            input_data = np.expand_dims(X_batch[i], axis=0).astype(np.float32)
+            
+            # Run inference
+            interpreter.set_tensor(input_details[0]['index'], input_data)
+            interpreter.invoke()
+            
+            # Get prediction
+            output_data = interpreter.get_tensor(output_details[0]['index'])
+            predicted_class = np.argmax(output_data[0])
+            true_class = np.argmax(y_batch[i])
+            
+            if predicted_class == true_class:
+                correct_predictions += 1
+            total_predictions += 1
+        
+        # Show progress every 10 batches
+        if (batch_idx + 1) % 10 == 0:
+            current_accuracy = correct_predictions / total_predictions
+            print(f"   Batch {batch_idx + 1}/{len(val_generator)}: {current_accuracy:.3f} accuracy")
+    
+    accuracy = correct_predictions / total_predictions
+    print(f"✅ TensorFlow Lite model accuracy: {accuracy:.3f} ({correct_predictions}/{total_predictions})")
     
     return accuracy
 
@@ -1185,35 +1352,67 @@ def main():
     use_real_data = setup_dataset_choice()
     
     # Create dataset
-    if use_real_data and real_dataset_X is not None:
+    if use_real_data and real_dataset_paths is not None:
         print("🚀 Using real soil dataset for training...")
-        # Split real dataset
-        X_train, X_val, y_train, y_val = train_test_split(
-            real_dataset_X, real_dataset_y, 
-            test_size=0.2, 
-            random_state=42, 
-            stratify=real_dataset_y
+        
+        # Split dataset paths and labels
+        train_paths, val_paths, train_labels, val_labels = train_test_split(
+            real_dataset_paths, real_dataset_labels,
+            test_size=0.2,
+            random_state=42,
+            stratify=real_dataset_labels
         )
-        train_data = (X_train, y_train)
-        val_data = (X_val, y_val)
         
         print(f"📊 Dataset split:")
-        print(f"   Training: {len(X_train)} samples")
-        print(f"   Validation: {len(X_val)} samples")
+        print(f"   Training: {len(train_paths)} samples")
+        print(f"   Validation: {len(val_paths)} samples")
+        
+        # Create data generators (memory efficient)
+        print("🔄 Creating data generators...")
+        train_generator = SoilDataGenerator(
+            train_paths, train_labels,
+            batch_size=BATCH_SIZE,
+            input_size=INPUT_SIZE,
+            shuffle=True,
+            augment=True  # Enable augmentation for training
+        )
+        
+        val_generator = SoilDataGenerator(
+            val_paths, val_labels,
+            batch_size=BATCH_SIZE,
+            input_size=INPUT_SIZE,
+            shuffle=False,
+            augment=False  # No augmentation for validation
+        )
+        
+        print(f"✅ Generators created:")
+        print(f"   Training batches: {len(train_generator)}")
+        print(f"   Validation batches: {len(val_generator)}")
+        
+        use_generators = True
+        
     else:
         print("🎨 Using synthetic dataset generation...")
         train_data, val_data = create_synthetic_dataset()
+        use_generators = False
     
     # Create and train model
     model = create_model()
-    history = train_model(model, train_data, val_data)
+    
+    if use_generators:
+        history = train_model_with_generators(model, train_generator, val_generator)
+    else:
+        history = train_model(model, train_data, val_data)
     
     # Convert to TensorFlow Lite
     model_path = os.path.join(output_dir, f"{MODEL_NAME}.tflite")
     tflite_model = convert_to_tflite(model, model_path)
     
     # Test TensorFlow Lite model
-    accuracy = test_tflite_model(tflite_model, val_data)
+    if use_generators:
+        accuracy = test_tflite_model_with_generator(tflite_model, val_generator)
+    else:
+        accuracy = test_tflite_model(tflite_model, val_data)
     
     # Save model information
     save_model_info(model_path, accuracy, history)
