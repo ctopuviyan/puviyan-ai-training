@@ -31,15 +31,25 @@ Indian Soil Types Supported:
 8. Forest/Hill Soil - Rich humus content, ideal for plantation crops
 
 Usage in Google Colab:
-1. Download this script: 
+1. Clean up any existing files (PREVENTS .py.1, .py.2 files):
+   import os
+   for f in os.listdir('.'):
+       if f.startswith('train_soil_classifier.py'):
+           os.remove(f)
+
+2. Download this script (FORCE OVERWRITE):
    !wget -O train_soil_classifier.py https://raw.githubusercontent.com/ctopuviyan/puviyan-ai-training/main/scripts/train_soil_classifier.py
 
-2. Run training (will prompt for dataset choice):
+3. Verify download (should show v3.0.0):
+   !head -20 train_soil_classifier.py | grep "3.0.0"
+
+4. Run training (will prompt for dataset choice):
    !python train_soil_classifier.py
 
-3. Choose: Real dataset upload OR synthetic generation
+5. Choose: Real dataset upload OR synthetic generation
 
-import tensorflow as tf
+6. Download generated files (model, metadata, plots)
+
 from tensorflow import keras
 from tensorflow.keras import layers
 import numpy as np
@@ -815,19 +825,26 @@ def show_download_instructions():
     """Show proper download instructions for Google Colab"""
     print("📥 TO UPDATE THIS SCRIPT IN GOOGLE COLAB:")
     print("="*60)
+    print("⚠️  IMPORTANT: Prevents incremental filenames (.py.1, .py.2)")
     print()
-    print("# 🧹 Clean setup (removes old versions)")
-    print("!rm -f train_soil_classifier.py*")
+    print("# 🧹 Complete cleanup (prevents .py.1, .py.2 files)")
+    print("import os")
+    print("for f in os.listdir('.'):")
+    print("    if f.startswith('train_soil_classifier.py'):")
+    print("        os.remove(f)")
+    print("        print(f'🗑️ Removed: {f}')")
     print()
-    print("# 📥 Download latest version (force overwrite)")  
+    print("# 📥 Download latest version (FORCE OVERWRITE)")  
     print("!wget -O train_soil_classifier.py https://raw.githubusercontent.com/ctopuviyan/puviyan-ai-training/main/scripts/train_soil_classifier.py")
     print()
-    print("# ✅ Verify download")
+    print("# ✅ Verify download (should show v3.0.0)")
     print("!ls -la train_soil_classifier.py")
+    print("!head -20 train_soil_classifier.py | grep '3.0.0'")
     print()
-    print("# 🚀 Run training")
+    print("# 🚀 Run training (will show dataset choice)")
     print("!python train_soil_classifier.py")
     print()
+    print("✅ This prevents the common .py.1, .py.2 filename issue!")
     print("="*60)
 
 def check_environment():
