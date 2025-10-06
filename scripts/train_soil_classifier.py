@@ -22,6 +22,8 @@ import os
 import json
 from datetime import datetime
 import matplotlib.pyplot as plt
+import subprocess
+import shutil
 
 # Configuration
 MODEL_NAME = "soil_classifier_lite"
@@ -431,6 +433,193 @@ def plot_training_history(history, output_dir):
         print(f"❌ Error creating plots: {e}")
         print("📊 Training completed but plots could not be generated")
 
+def upload_model_to_github(model_files, repo_url="https://github.com/ctopuviyan/puviyan-ai-training.git"):
+    """Upload trained model files to GitHub repository"""
+    print("🚀 Uploading model to GitHub repository...")
+    
+    try:
+        # Check if we're in a git repository
+        result = subprocess.run(['git', 'status'], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print("📂 Not in a git repository. Cloning repository...")
+            
+            # Clone the repository
+            subprocess.run(['git', 'clone', repo_url, 'temp_repo'], check=True)
+            repo_dir = 'temp_repo'
+        else:
+            print("📂 Already in git repository")
+            repo_dir = '.'
+        
+        # Create models directory in repo
+        models_dir = os.path.join(repo_dir, 'models')
+        os.makedirs(models_dir, exist_ok=True)
+        
+        # Copy model files to repository
+        copied_files = []
+        for file_path in model_files:
+            if os.path.exists(file_path):
+                filename = os.path.basename(file_path)
+                dest_path = os.path.join(models_dir, filename)
+                shutil.copy2(file_path, dest_path)
+                copied_files.append(dest_path)
+                print(f"  ✅ Copied {filename} to repository")
+        
+        if not copied_files:
+            print("❌ No model files found to upload")
+            return False
+        
+        # Change to repository directory
+        original_dir = os.getcwd()
+        os.chdir(repo_dir)
+        
+        try:
+            # Configure git (in case it's not configured)
+            subprocess.run(['git', 'config', 'user.email', 'ai-training@puviyan.com'], 
+                         capture_output=True)
+            subprocess.run(['git', 'config', 'user.name', 'Puviyan AI Training'], 
+                         capture_output=True)
+            
+            # Add model files to git
+            subprocess.run(['git', 'add', 'models/'], check=True)
+            
+            # Create commit message with model info
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            commit_msg = f"Add trained soil detection model - {timestamp}\n\n"
+            commit_msg += f"- Model: {MODEL_NAME}.tflite\n"
+            commit_msg += f"- Classes: {NUM_CLASSES} Indian soil types\n"
+            commit_msg += f"- Input size: {INPUT_SIZE}x{INPUT_SIZE}\n"
+            commit_msg += f"- Training epochs: {EPOCHS}\n"
+            commit_msg += "- Ready for mobile deployment"
+            
+            # Commit changes
+            result = subprocess.run(['git', 'commit', '-m', commit_msg], 
+                                  capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                print("✅ Model committed to repository")
+                
+                # Try to push (may require authentication)
+                print("🔄 Attempting to push to GitHub...")
+                push_result = subprocess.run(['git', 'push'], 
+                                           capture_output=True, text=True)
+                
+                if push_result.returncode == 0:
+                    print("🎉 Model successfully uploaded to GitHub!")
+                    print(f"🔗 Repository: {repo_url}")
+                    return True
+                else:
+                    print("⚠️ Model committed locally but push failed")
+                    print("💡 You may need to manually push or configure authentication")
+                    print(f"Error: {push_result.stderr}")
+                    return False
+            else:
+                if "nothing to commit" in result.stdout:
+                    print("ℹ️ Model already up to date in repository")
+                    return True
+                else:
+                    print(f"❌ Commit failed: {result.stderr}")
+                    return False
+                    
+        finally:
+            # Return to original directory
+            os.chdir(original_dir)
+            
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Git command failed: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Upload failed: {e}")
+        return False
+
+def create_deployment_package(model_path, info_path, plots_path):
+    """Create a deployment package with all necessary files"""
+    print("📦 Creating deployment package...")
+    
+    try:
+        # Create deployment directory
+        deploy_dir = "deployment_package"
+        os.makedirs(deploy_dir, exist_ok=True)
+        
+        # Copy files to deployment package
+        files_to_copy = [
+            (model_path, "model"),
+            (info_path, "metadata"), 
+            (plots_path, "training_results")
+        ]
+        
+        deployment_files = []
+        
+        for src_path, file_type in files_to_copy:
+            if os.path.exists(src_path):
+                filename = os.path.basename(src_path)
+                dest_path = os.path.join(deploy_dir, filename)
+                shutil.copy2(src_path, dest_path)
+                deployment_files.append(dest_path)
+                print(f"  ✅ Added {file_type}: {filename}")
+        
+        # Create deployment instructions
+        instructions = f"""# 🌱 Puviyan Soil Detection Model Deployment
+
+## 📦 Package Contents:
+- `{MODEL_NAME}.tflite` - Trained TensorFlow Lite model
+- `{MODEL_NAME}_info.json` - Model metadata and usage instructions  
+- `training_history.png` - Training performance plots
+
+## 🚀 Deployment Steps:
+
+### 1. Mobile App Integration:
+```bash
+# Copy model to Flutter app
+cp {MODEL_NAME}.tflite ../puviyan-mobile/assets/models/
+
+# Enable TensorFlow Lite in pubspec.yaml
+# Uncomment: tflite_flutter: ^0.10.4
+
+# Update on-device service to use real model
+# Remove mock mode from on_device_soil_detection_service.dart
+```
+
+### 2. Model Usage:
+- **Input**: 224x224 RGB images, normalized to [0,1]
+- **Output**: 8 class probabilities for Indian soil types
+- **Confidence threshold**: 0.75 recommended
+
+### 3. Soil Types:
+{chr(10).join([f"{i}. {label}" for i, label in SOIL_LABELS.items()])}
+
+## 📊 Model Performance:
+- Training completed: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+- Model size: ~5-10MB (optimized for mobile)
+- Expected inference time: ~150ms on mobile devices
+
+## 🔧 Integration Notes:
+- Replace mock inference in Flutter app
+- Test with real soil images
+- Monitor performance and accuracy
+- Collect user feedback for model improvements
+
+Generated by Puviyan AI Training Pipeline
+"""
+        
+        readme_path = os.path.join(deploy_dir, "DEPLOYMENT_README.md")
+        with open(readme_path, 'w') as f:
+            f.write(instructions)
+        
+        deployment_files.append(readme_path)
+        print(f"  ✅ Added deployment instructions: DEPLOYMENT_README.md")
+        
+        # Create zip package
+        zip_name = f"puviyan_soil_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        shutil.make_archive(zip_name, 'zip', deploy_dir)
+        
+        print(f"📦 Deployment package created: {zip_name}.zip")
+        return f"{zip_name}.zip", deployment_files
+        
+    except Exception as e:
+        print(f"❌ Failed to create deployment package: {e}")
+        return None, []
+
 def main():
     """Main training pipeline"""
     print("🌱 Starting Soil Classification Model Training")
@@ -464,11 +653,43 @@ def main():
     # Plot training history
     plot_training_history(history, output_dir)
     
+    # Create deployment package
+    info_path = model_path.replace('.tflite', '_info.json')
+    plots_path = os.path.join(output_dir, 'training_history.png')
+    zip_package, deployment_files = create_deployment_package(model_path, info_path, plots_path)
+    
+    # Upload model to GitHub repository
+    model_files = [model_path, info_path, plots_path]
+    upload_success = upload_model_to_github(model_files)
+    
     print("\n🎉 Model training completed successfully!")
     print(f"📱 TensorFlow Lite model: {model_path}")
     print(f"📊 Final accuracy: {accuracy:.2%}")
     print(f"💾 Model size: {len(tflite_model) / (1024 * 1024):.2f} MB")
+    
+    if zip_package:
+        print(f"📦 Deployment package: {zip_package}")
+    
+    if upload_success:
+        print("🚀 Model uploaded to GitHub repository")
+        print("🔗 https://github.com/ctopuviyan/puviyan-ai-training")
+    else:
+        print("⚠️ GitHub upload failed - model available locally")
+    
     print("\n✅ Ready for mobile deployment!")
+    
+    # Instructions for next steps
+    print("\n🎯 Next Steps:")
+    print("1. 📥 Download the .tflite model file")
+    print("2. 📱 Copy to Flutter app: assets/models/")
+    print("3. 🔧 Enable TensorFlow Lite in pubspec.yaml")
+    print("4. 🧪 Test with real soil images")
+    
+    if not upload_success:
+        print("\n💡 To manually upload model:")
+        print("   - Download model files from Colab")
+        print("   - Commit to GitHub repository")
+        print("   - Use deployment script for mobile app")
 
 if __name__ == "__main__":
     main()
