@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Datasets (too large for git)
+datasets/
+data/
+*.zip
+*.tar.gz
+*.rar
+
+# Trained models (use Git LFS or separate storage)
+models/*.h5
+models/*.pb
+models/*.tflite
+models/*.onnx
+*.h5
+*.pb
+*.onnx
+
+# Logs and outputs
+logs/
+outputs/
+*.log
+*.out
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Training artifacts
+checkpoints/
+tensorboard_logs/
+wandb/
+
+# API keys and secrets
+.env
+config.json
+secrets.json
+*.key
+*.pem
+
+# Large files
+*.pkl
+*.pickle
+*.npy
+*.npz
