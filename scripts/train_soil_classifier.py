@@ -352,7 +352,7 @@ def save_model_info(model_path, accuracy, history):
         "model_file": os.path.basename(model_path),
         "usage_instructions": {
             "preprocessing": "Resize image to 224x224, normalize to [0,1]",
-            "output": "5 class probabilities for Clay, Sandy, Loamy, Silty, Rocky",
+            "output": "8 class probabilities for Indian soil types",
             "confidence_threshold": 0.75
         }
     }
@@ -367,40 +367,81 @@ def plot_training_history(history, output_dir):
     """Plot and save training history"""
     print("📊 Plotting training history...")
     
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
-    
-    # Plot accuracy
-    ax1.plot(history.history['accuracy'], label='Training Accuracy')
-    ax1.plot(history.history['val_accuracy'], label='Validation Accuracy')
-    ax1.set_title('Model Accuracy')
-    ax1.set_xlabel('Epoch')
-    ax1.set_ylabel('Accuracy')
-    ax1.legend()
-    ax1.grid(True)
-    
-    # Plot loss
-    ax2.plot(history.history['loss'], label='Training Loss')
-    ax2.plot(history.history['val_loss'], label='Validation Loss')
-    ax2.set_title('Model Loss')
-    ax2.set_xlabel('Epoch')
-    ax2.set_ylabel('Loss')
-    ax2.legend()
-    ax2.grid(True)
-    
-    plt.tight_layout()
-    plot_path = os.path.join(output_dir, 'training_history.png')
-    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✅ Training history saved: {plot_path}")
+    try:
+        # Setup matplotlib
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+        
+        # Plot accuracy
+        ax1.plot(history.history['accuracy'], label='Training Accuracy', linewidth=2)
+        ax1.plot(history.history['val_accuracy'], label='Validation Accuracy', linewidth=2)
+        ax1.set_title('🎯 Model Accuracy Over Time', fontsize=14, fontweight='bold')
+        ax1.set_xlabel('Epoch')
+        ax1.set_ylabel('Accuracy')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        ax1.set_ylim(0, 1)
+        
+        # Plot loss
+        ax2.plot(history.history['loss'], label='Training Loss', linewidth=2)
+        ax2.plot(history.history['val_loss'], label='Validation Loss', linewidth=2)
+        ax2.set_title('📉 Model Loss Over Time', fontsize=14, fontweight='bold')
+        ax2.set_xlabel('Epoch')
+        ax2.set_ylabel('Loss')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # Save plot
+        plot_path = os.path.join(output_dir, 'training_history.png')
+        plt.savefig(plot_path, dpi=150, bbox_inches='tight', facecolor='white')
+        
+        # Also save as JPG for better compatibility
+        jpg_path = os.path.join(output_dir, 'training_history.jpg')
+        plt.savefig(jpg_path, dpi=150, bbox_inches='tight', facecolor='white')
+        
+        # Show plot in Colab
+        plt.show()
+        plt.close()
+        
+        print(f"✅ Training plots saved:")
+        print(f"  📊 {plot_path}")
+        print(f"  📊 {jpg_path}")
+        
+        # Save training history as JSON for later analysis
+        history_json = {
+            'accuracy': history.history['accuracy'],
+            'val_accuracy': history.history['val_accuracy'],
+            'loss': history.history['loss'],
+            'val_loss': history.history['val_loss'],
+            'epochs': len(history.history['accuracy'])
+        }
+        
+        json_path = os.path.join(output_dir, 'training_history.json')
+        with open(json_path, 'w') as f:
+            json.dump(history_json, f, indent=2)
+        
+        print(f"  📄 {json_path}")
+        
+    except Exception as e:
+        print(f"❌ Error creating plots: {e}")
+        print("📊 Training completed but plots could not be generated")
 
 def main():
     """Main training pipeline"""
     print("🌱 Starting Soil Classification Model Training")
     print("=" * 50)
     
-    # Create output directory
-    output_dir = "../assets/models"
+    # Setup matplotlib for Colab
+    import matplotlib
+    matplotlib.use('Agg')  # Use non-interactive backend
+    
+    # Create output directory (current directory for Colab)
+    output_dir = "."
     os.makedirs(output_dir, exist_ok=True)
     
     # Create dataset
