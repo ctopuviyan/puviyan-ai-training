@@ -1,43 +1,43 @@
 #!/usr/bin/env python3
 """
-Soil Type Classification Model Training Script
-Creates a TensorFlow Lite model for on-device soil detection
+Puviyan Soil Detection Training Script
+========================================
 
-🌱 PUVIYAN AI TRAINING PIPELINE 🌱
+Advanced soil classification model training for Indian soil types using TensorFlow.
+Supports both real soil image datasets and synthetic data generation.
 
-Indian Soil Types:
-0. Alluvial Soil
-1. Black Soil  
-2. Red Soil
-3. Laterite Soil
-4. Desert Soil
-5. Saline/Alkaline Soil
-6. Peaty/Marshy Soil
-7. Forest/Hill Soil
+NEW: Real Dataset Support!
+- Upload ZIP files with real soil images
+- Automatic folder-to-soil-type mapping
+- Enhanced accuracy with real-world data
+- Fallback to synthetic data generation
 
-📥 TO DOWNLOAD LATEST VERSION IN GOOGLE COLAB:
-```python
-# Clean setup (removes old versions)
-!rm -f train_soil_classifier.py*
+Features:
+- 8 Indian soil types classification
+- Real dataset upload and processing
+- Synthetic data generation with realistic soil characteristics
+- TensorFlow Lite model export for mobile apps
+- Comprehensive training metrics and visualization
+- Google Colab optimized with automatic file downloads
 
-# Download latest version (force overwrite)
-!wget -O train_soil_classifier.py https://raw.githubusercontent.com/ctopuviyan/puviyan-ai-training/main/scripts/train_soil_classifier.py
+Indian Soil Types Supported:
+1. Alluvial Soil - Fertile river deposits, ideal for crops
+2. Black Soil - Clay-rich, excellent for cotton cultivation  
+3. Red Soil - Iron-rich, good drainage, suitable for groundnuts
+4. Laterite Soil - tropical weathered soil, good for cashews
+5. Desert Soil - Arid conditions, limited agriculture potential
+6. Saline/Alkaline Soil - High salt content, needs soil treatment
+7. Peaty/Marshy Soil - Organic-rich, waterlogged conditions
+8. Forest/Hill Soil - Rich humus content, ideal for plantation crops
 
-# Verify download
-!ls -la train_soil_classifier.py
+Usage in Google Colab:
+1. Download this script: 
+   !wget -O train_soil_classifier.py https://raw.githubusercontent.com/ctopuviyan/puviyan-ai-training/main/scripts/train_soil_classifier.py
 
-# Run training
-!python train_soil_classifier.py
-```
+2. Run training (will prompt for dataset choice):
+   !python train_soil_classifier.py
 
-🔧 FEATURES:
-- ✅ 8 Indian soil types with realistic synthetic data
-- ✅ Automatic training plots generation
-- ✅ TensorFlow Lite model conversion
-- ✅ Automatic GitHub repository upload
-- ✅ Complete deployment package creation
-- ✅ Mobile app integration instructions
-"""
+3. Choose: Real dataset upload OR synthetic generation
 
 import tensorflow as tf
 from tensorflow import keras
@@ -57,7 +57,7 @@ NUM_CLASSES = 8
 BATCH_SIZE = 32
 EPOCHS = 50
 LEARNING_RATE = 0.001
-SCRIPT_VERSION = "2.1.0"  # Updated with GitHub upload and download fix
+SCRIPT_VERSION = "3.0.0"  # Updated with GitHub upload and download fix
 
 # Indian soil type labels
 SOIL_LABELS = {
@@ -70,6 +70,171 @@ SOIL_LABELS = {
     6: "Peaty/Marshy Soil",
     7: "Forest/Hill Soil"
 }
+
+# Folder name mappings for real datasets
+FOLDER_MAPPINGS = {
+    "alluvial": 0, "alluvial_soil": 0,
+    "black": 1, "black_soil": 1, "cotton": 1,
+    "red": 2, "red_soil": 2, "lateritic": 2,
+    "laterite": 3, "laterite_soil": 3,
+    "desert": 4, "desert_soil": 4, "sandy": 4, "arid": 4,
+    "saline": 5, "alkaline": 5, "saline_alkaline": 5, "salt": 5,
+    "peaty": 6, "marshy": 6, "peaty_marshy": 6, "organic": 6,
+    "forest": 7, "hill": 7, "forest_hill": 7, "mountain": 7
+}
+
+def setup_dataset_choice():
+    """Setup dataset choice for Colab users"""
+    try:
+        import google.colab
+        
+        print("📊 Dataset Options:")
+        print("1. Upload real soil images (ZIP file)")
+        print("2. Use synthetic dataset generation")
+        print()
+        
+        choice = input("Choose dataset type (1 for real, 2 for synthetic): ").strip()
+        
+        if choice == "1":
+            return setup_real_dataset_upload()
+        else:
+            print("🎨 Using synthetic dataset generation...")
+            return False
+            
+    except ImportError:
+        print("ℹ️ Not in Colab - checking for local dataset...")
+        return check_local_dataset()
+
+def setup_real_dataset_upload():
+    """Handle real dataset upload in Colab"""
+    try:
+        from google.colab import files
+        import zipfile
+        
+        print("📤 Upload your soil dataset ZIP file...")
+        print("Expected structure inside ZIP:")
+        for soil_type in SOIL_LABELS.values():
+            folder_name = soil_type.replace('/', '_').replace(' ', '_')
+            print(f"   {folder_name}/")
+        print()
+        
+        uploaded = files.upload()
+        
+        if uploaded:
+            for filename in uploaded.keys():
+                if filename.endswith('.zip'):
+                    print(f"📦 Extracting {filename}...")
+                    return extract_and_process_dataset(filename)
+                    
+        print("❌ No ZIP file uploaded. Using synthetic dataset.")
+        return False
+        
+    except Exception as e:
+        print(f"❌ Upload failed: {e}. Using synthetic dataset.")
+        return False
+
+def check_local_dataset():
+    """Check for local dataset directory"""
+    dataset_paths = ['soil_dataset', 'real_soil_dataset', 'dataset', 'data']
+    
+    for path in dataset_paths:
+        if os.path.exists(path):
+            print(f"✅ Found local dataset at: {path}")
+            return process_local_dataset(path)
+    
+    print("ℹ️ No local dataset found. Using synthetic generation.")
+    return False
+
+def extract_and_process_dataset(zip_filename):
+    """Extract and process uploaded dataset"""
+    import zipfile
+    from PIL import Image
+    
+    dataset_dir = "real_soil_dataset"
+    
+    # Clean existing dataset
+    if os.path.exists(dataset_dir):
+        shutil.rmtree(dataset_dir)
+    
+    os.makedirs(dataset_dir, exist_ok=True)
+    
+    # Extract ZIP
+    with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
+        zip_ref.extractall(dataset_dir)
+    
+    return process_local_dataset(dataset_dir)
+
+def process_local_dataset(dataset_dir):
+    """Process local dataset directory"""
+    from PIL import Image
+    
+    print(f"📊 Processing dataset in {dataset_dir}...")
+    
+    # Find image files and map to soil types
+    image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff'}
+    dataset = {'images': [], 'labels': []}
+    
+    for root, dirs, files in os.walk(dataset_dir):
+        folder_name = os.path.basename(root).lower()
+        
+        # Map folder name to soil type
+        soil_class = None
+        for keyword, class_id in FOLDER_MAPPINGS.items():
+            if keyword in folder_name:
+                soil_class = class_id
+                break
+        
+        if soil_class is None:
+            continue
+            
+        print(f"📂 Processing {SOIL_LABELS[soil_class]} ({folder_name})...")
+        
+        image_count = 0
+        for filename in files:
+            if any(filename.lower().endswith(ext) for ext in image_extensions):
+                img_path = os.path.join(root, filename)
+                
+                try:
+                    # Load and preprocess image
+                    img = Image.open(img_path).convert('RGB')
+                    img = img.resize((INPUT_SIZE, INPUT_SIZE))
+                    img_array = np.array(img) / 255.0
+                    
+                    dataset['images'].append(img_array)
+                    dataset['labels'].append(soil_class)
+                    image_count += 1
+                    
+                except Exception as e:
+                    print(f"⚠️ Error loading {img_path}: {e}")
+                    continue
+        
+        if image_count > 0:
+            print(f"   ✅ Loaded {image_count} images")
+        else:
+            print(f"   ❌ No valid images found")
+    
+    if not dataset['images']:
+        print("❌ No images loaded successfully. Using synthetic dataset.")
+        return False
+    
+    # Convert to numpy arrays and save globally
+    global real_dataset_X, real_dataset_y
+    real_dataset_X = np.array(dataset['images'])
+    real_dataset_y = np.array(dataset['labels'])
+    
+    print(f"✅ Real dataset loaded: {len(real_dataset_X)} images, {len(np.unique(real_dataset_y))} classes")
+    
+    # Show class distribution
+    unique, counts = np.unique(real_dataset_y, return_counts=True)
+    print("📊 Class distribution:")
+    for class_id, count in zip(unique, counts):
+        print(f"   {SOIL_LABELS[class_id]}: {count} images")
+    
+    return True
+
+# Global variables for real dataset
+real_dataset_X = None
+real_dataset_y = None
 
 def create_synthetic_dataset():
     """
@@ -713,8 +878,29 @@ def main():
     output_dir = "."
     os.makedirs(output_dir, exist_ok=True)
     
+    # Setup dataset choice
+    use_real_data = setup_dataset_choice()
+    
     # Create dataset
-    train_data, val_data = create_synthetic_dataset()
+    if use_real_data and real_dataset_X is not None:
+        print("🚀 Using real soil dataset for training...")
+        # Split real dataset
+        from sklearn.model_selection import train_test_split
+        X_train, X_val, y_train, y_val = train_test_split(
+            real_dataset_X, real_dataset_y, 
+            test_size=0.2, 
+            random_state=42, 
+            stratify=real_dataset_y
+        )
+        train_data = (X_train, y_train)
+        val_data = (X_val, y_val)
+        
+        print(f"📊 Dataset split:")
+        print(f"   Training: {len(X_train)} samples")
+        print(f"   Validation: {len(X_val)} samples")
+    else:
+        print("🎨 Using synthetic dataset generation...")
+        train_data, val_data = create_synthetic_dataset()
     
     # Create and train model
     model = create_model()
