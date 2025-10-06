@@ -55,21 +55,30 @@ def create_synthetic_dataset():
         """Generate synthetic soil texture based on type"""
         np.random.seed(42 + soil_type)  # Reproducible random generation
         
-        if soil_type == 0:  # Clay - darker, smoother
-            base_color = np.array([101, 67, 33]) / 255.0  # Dark brown
-            noise_scale = 0.1
-        elif soil_type == 1:  # Sandy - lighter, granular
-            base_color = np.array([194, 154, 108]) / 255.0  # Sandy brown
-            noise_scale = 0.3
-        elif soil_type == 2:  # Loamy - balanced, rich
-            base_color = np.array([139, 69, 19]) / 255.0  # Saddle brown
-            noise_scale = 0.2
-        elif soil_type == 3:  # Silty - smooth, medium
-            base_color = np.array([160, 82, 45]) / 255.0  # Sienna
+        if soil_type == 0:  # Alluvial - fertile river deposits, brownish
+            base_color = np.array([139, 115, 85]) / 255.0  # Light brown
             noise_scale = 0.15
-        else:  # Rocky - gray, rough
-            base_color = np.array([105, 105, 105]) / 255.0  # Dim gray
-            noise_scale = 0.4
+        elif soil_type == 1:  # Black - clay-rich, dark
+            base_color = np.array([47, 47, 47]) / 255.0  # Dark gray/black
+            noise_scale = 0.08
+        elif soil_type == 2:  # Red - iron-rich, reddish
+            base_color = np.array([205, 92, 92]) / 255.0  # Indian red
+            noise_scale = 0.12
+        elif soil_type == 3:  # Laterite - iron/aluminum rich, brick red
+            base_color = np.array([178, 34, 34]) / 255.0  # Fire brick red
+            noise_scale = 0.10
+        elif soil_type == 4:  # Desert - arid, sandy light
+            base_color = np.array([244, 164, 96]) / 255.0  # Sandy brown
+            noise_scale = 0.25
+        elif soil_type == 5:  # Saline/Alkaline - high salt, whitish
+            base_color = np.array([211, 211, 211]) / 255.0  # Light gray
+            noise_scale = 0.18
+        elif soil_type == 6:  # Peaty/Marshy - organic rich, dark brown
+            base_color = np.array([85, 107, 47]) / 255.0  # Dark olive green
+            noise_scale = 0.14
+        else:  # Forest/Hill - rich humus, dark brown
+            base_color = np.array([101, 67, 33]) / 255.0  # Dark brown
+            noise_scale = 0.12
         
         # Create base image
         image = np.full(size, base_color)
@@ -78,28 +87,72 @@ def create_synthetic_dataset():
         noise = np.random.normal(0, noise_scale, size)
         image = np.clip(image + noise, 0, 1)
         
-        # Add some realistic variations
-        if soil_type == 1:  # Sandy - add granular pattern
-            for _ in range(50):
+        # Add realistic texture variations for Indian soil types
+        if soil_type == 0:  # Alluvial - mixed particle sizes, river deposits
+            for _ in range(30):
                 x, y = np.random.randint(0, INPUT_SIZE, 2)
-                radius = np.random.randint(2, 8)
-                color_var = np.random.normal(0, 0.1, 3)
+                radius = np.random.randint(3, 10)
+                color_var = np.random.normal(0, 0.08, 3)
                 for dx in range(-radius, radius):
                     for dy in range(-radius, radius):
                         if 0 <= x+dx < INPUT_SIZE and 0 <= y+dy < INPUT_SIZE:
                             if dx*dx + dy*dy <= radius*radius:
                                 image[x+dx, y+dy] = np.clip(image[x+dx, y+dy] + color_var, 0, 1)
         
-        elif soil_type == 4:  # Rocky - add rock-like patches
-            for _ in range(20):
-                x, y = np.random.randint(10, INPUT_SIZE-10, 2)
-                radius = np.random.randint(5, 15)
-                rock_color = np.array([0.4, 0.4, 0.4]) + np.random.normal(0, 0.1, 3)
+        elif soil_type == 1:  # Black - clay texture, smooth patches
+            for _ in range(15):
+                x, y = np.random.randint(5, INPUT_SIZE-5, 2)
+                radius = np.random.randint(8, 20)
+                clay_smoothing = np.random.normal(0, 0.03, 3)
                 for dx in range(-radius, radius):
                     for dy in range(-radius, radius):
                         if 0 <= x+dx < INPUT_SIZE and 0 <= y+dy < INPUT_SIZE:
                             if dx*dx + dy*dy <= radius*radius:
-                                image[x+dx, y+dy] = np.clip(rock_color, 0, 1)
+                                image[x+dx, y+dy] = np.clip(image[x+dx, y+dy] + clay_smoothing, 0, 1)
+        
+        elif soil_type == 2:  # Red - iron oxide patterns
+            for _ in range(25):
+                x, y = np.random.randint(0, INPUT_SIZE, 2)
+                radius = np.random.randint(2, 8)
+                iron_color = np.array([0.15, -0.05, -0.05])  # More red
+                for dx in range(-radius, radius):
+                    for dy in range(-radius, radius):
+                        if 0 <= x+dx < INPUT_SIZE and 0 <= y+dy < INPUT_SIZE:
+                            if dx*dx + dy*dy <= radius*radius:
+                                image[x+dx, y+dy] = np.clip(image[x+dx, y+dy] + iron_color, 0, 1)
+        
+        elif soil_type == 4:  # Desert - sandy granular pattern
+            for _ in range(60):
+                x, y = np.random.randint(0, INPUT_SIZE, 2)
+                radius = np.random.randint(1, 5)
+                sand_grain = np.random.normal(0, 0.15, 3)
+                for dx in range(-radius, radius):
+                    for dy in range(-radius, radius):
+                        if 0 <= x+dx < INPUT_SIZE and 0 <= y+dy < INPUT_SIZE:
+                            if dx*dx + dy*dy <= radius*radius:
+                                image[x+dx, y+dy] = np.clip(image[x+dx, y+dy] + sand_grain, 0, 1)
+        
+        elif soil_type == 5:  # Saline - salt crystal patterns
+            for _ in range(40):
+                x, y = np.random.randint(0, INPUT_SIZE, 2)
+                radius = np.random.randint(2, 6)
+                salt_crystal = np.array([0.1, 0.1, 0.1])  # Whitish crystals
+                for dx in range(-radius, radius):
+                    for dy in range(-radius, radius):
+                        if 0 <= x+dx < INPUT_SIZE and 0 <= y+dy < INPUT_SIZE:
+                            if dx*dx + dy*dy <= radius*radius:
+                                image[x+dx, y+dy] = np.clip(image[x+dx, y+dy] + salt_crystal, 0, 1)
+        
+        elif soil_type == 6:  # Peaty - organic matter patches
+            for _ in range(20):
+                x, y = np.random.randint(5, INPUT_SIZE-5, 2)
+                radius = np.random.randint(6, 15)
+                organic_matter = np.array([-0.1, 0.05, -0.05])  # Darker, greenish
+                for dx in range(-radius, radius):
+                    for dy in range(-radius, radius):
+                        if 0 <= x+dx < INPUT_SIZE and 0 <= y+dy < INPUT_SIZE:
+                            if dx*dx + dy*dy <= radius*radius:
+                                image[x+dx, y+dy] = np.clip(image[x+dx, y+dy] + organic_matter, 0, 1)
         
         return image.astype(np.float32)
     
