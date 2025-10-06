@@ -125,30 +125,105 @@ def setup_dataset_choice():
 
 def setup_real_dataset_upload():
     """Handle real dataset upload in Colab"""
+    print("📤 REAL DATASET UPLOAD FROM LOCAL MACHINE")
+    print("=" * 50)
+    
     try:
+        # Check if we're in Colab
+        import google.colab
+        print("✅ Google Colab environment detected")
+        
+        # Import files module
         from google.colab import files
         import zipfile
         
-        print("📤 Upload your soil dataset ZIP file...")
-        print("Expected structure inside ZIP:")
-        for soil_type in SOIL_LABELS.values():
+        print("\n📋 DATASET PREPARATION GUIDE:")
+        print("1. Create folders for each soil type on your computer:")
+        for i, soil_type in SOIL_LABELS.items():
             folder_name = soil_type.replace('/', '_').replace(' ', '_')
-            print(f"   {folder_name}/")
-        print()
+            print(f"   📁 {folder_name}/ (Class {i})")
+        
+        print("\n2. Put soil images in respective folders:")
+        print("   📁 Alluvial_Soil/")
+        print("      ├── 📸 soil_image_1.jpg")
+        print("      ├── 📸 soil_image_2.jpg")
+        print("      └── 📸 ...")
+        print("   📁 Black_Soil/")
+        print("      ├── 📸 black_soil_1.jpg")
+        print("      └── 📸 ...")
+        
+        print("\n3. Create a ZIP file containing all folders")
+        print("4. Upload the ZIP file using the button below")
+        
+        print("\n" + "=" * 50)
+        print("🔄 CLICK THE UPLOAD BUTTON BELOW:")
+        print("=" * 50)
+        
+        # Force flush output to ensure messages appear
+        import sys
+        sys.stdout.flush()
+        
+        # Trigger file upload with explicit message
+        print("📤 Waiting for file upload...")
+        uploaded = files.upload()
+        
+        if not uploaded:
+            print("❌ No files were uploaded.")
+            print("💡 Make sure to click 'Choose Files' and select your ZIP file")
+            return False
+        
+        print(f"✅ {len(uploaded)} file(s) uploaded successfully!")
+        
+        # Process uploaded files
+        for filename, content in uploaded.items():
+            print(f"📄 Processing: {filename} ({len(content)} bytes)")
+            
+            if filename.endswith('.zip'):
+                print(f"📦 Extracting ZIP file: {filename}")
+                return extract_and_process_dataset(filename)
+            else:
+                print(f"⚠️ {filename} is not a ZIP file")
+        
+        print("❌ No ZIP files found in upload. Using synthetic dataset.")
+        return False
+        
+    except ImportError:
+        print("❌ Not running in Google Colab")
+        print("💡 This function requires Google Colab environment")
+        print("💡 For local development, place dataset in 'soil_dataset' folder")
+        return False
+        
+    except Exception as e:
+        print(f"❌ Upload failed with error: {e}")
+        print("💡 Try refreshing the page and running again")
+        print("💡 Make sure your ZIP file is not too large (< 25MB recommended)")
+        return False
+
+def test_colab_upload():
+    """Simple test function to verify Colab file upload works"""
+    print("🧪 TESTING COLAB FILE UPLOAD")
+    print("=" * 40)
+    
+    try:
+        import google.colab
+        from google.colab import files
+        
+        print("✅ Google Colab detected")
+        print("✅ Files module imported")
+        print("\n📤 Test upload - select any small file:")
         
         uploaded = files.upload()
         
         if uploaded:
-            for filename in uploaded.keys():
-                if filename.endswith('.zip'):
-                    print(f"📦 Extracting {filename}...")
-                    return extract_and_process_dataset(filename)
-                    
-        print("❌ No ZIP file uploaded. Using synthetic dataset.")
-        return False
-        
+            for filename, content in uploaded.items():
+                print(f"✅ Successfully uploaded: {filename} ({len(content)} bytes)")
+            return True
+        else:
+            print("❌ No files uploaded")
+            return False
+            
     except Exception as e:
-        print(f"❌ Upload failed: {e}. Using synthetic dataset.")
+        print(f"❌ Test failed: {e}")
         return False
 
 def check_local_dataset():
