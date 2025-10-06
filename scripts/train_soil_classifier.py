@@ -107,14 +107,17 @@ def setup_dataset_choice():
         import google.colab
         
         print("📊 Dataset Options:")
-        print("1. Upload real soil images (ZIP file)")
-        print("2. Use synthetic dataset generation")
+        print("1. Upload real soil images (ZIP file) - Automatic")
+        print("2. Upload real soil images (ZIP file) - Manual method")
+        print("3. Use synthetic dataset generation")
         print()
         
-        choice = input("Choose dataset type (1 for real, 2 for synthetic): ").strip()
+        choice = input("Choose dataset type (1 for auto, 2 for manual, 3 for synthetic): ").strip()
         
         if choice == "1":
             return setup_real_dataset_upload()
+        elif choice == "2":
+            return setup_manual_dataset_upload()
         else:
             print("🎨 Using synthetic dataset generation...")
             return False
@@ -122,6 +125,59 @@ def setup_dataset_choice():
     except ImportError:
         print("ℹ️ Not in Colab - checking for local dataset...")
         return check_local_dataset()
+
+def setup_manual_dataset_upload():
+    """Handle manual dataset upload in Colab (bypass automatic upload)"""
+    print("📁 MANUAL DATASET UPLOAD METHOD")
+    print("=" * 50)
+    
+    try:
+        import google.colab
+        print("✅ Google Colab environment detected")
+        
+        print("\n📋 STEP-BY-STEP MANUAL UPLOAD:")
+        print("1. 📁 Click the folder icon on the LEFT SIDEBAR")
+        print("2. 📤 Click the upload button (folder with up arrow)")
+        print("3. 🗂️ Select your soil_dataset.zip file from your computer")
+        print("4. ⏳ Wait for the upload progress bar to complete")
+        print("5. ✅ Your file should appear in the file list")
+        print()
+        
+        print("📋 Expected ZIP structure:")
+        for i, soil_type in SOIL_LABELS.items():
+            folder_name = soil_type.replace('/', '_').replace(' ', '_')
+            print(f"   📁 {folder_name}/ (Class {i})")
+        
+        print("\n🛑 AFTER UPLOADING YOUR ZIP FILE:")
+        print("Press Enter to continue and the script will look for your uploaded file...")
+        input("Press Enter after you've uploaded your ZIP file: ")
+        
+        # Check if file was uploaded manually
+        import os
+        zip_files = [f for f in os.listdir('.') if f.endswith('.zip')]
+        
+        if zip_files:
+            print(f"✅ Found {len(zip_files)} ZIP file(s): {zip_files}")
+            for zip_file in zip_files:
+                if 'soil' in zip_file.lower() or 'dataset' in zip_file.lower():
+                    print(f"📦 Processing: {zip_file}")
+                    return extract_and_process_dataset(zip_file)
+            
+            # If no soil-related ZIP found, use the first one
+            print(f"📦 Processing: {zip_files[0]}")
+            return extract_and_process_dataset(zip_files[0])
+        else:
+            print("❌ No ZIP files found in the current directory")
+            print("💡 Make sure you uploaded the file to the root directory (not in a subfolder)")
+            print("🔄 Try uploading again or use synthetic data")
+            return False
+            
+    except ImportError:
+        print("❌ Not running in Google Colab")
+        return False
+    except Exception as e:
+        print(f"❌ Manual upload process failed: {e}")
+        return False
 
 def setup_real_dataset_upload():
     """Handle real dataset upload in Colab"""
@@ -200,7 +256,25 @@ def setup_real_dataset_upload():
                     # Wait for upload (this is a simplified approach)
                     print("⏳ After selecting your file, run the next cell to continue...")
                     print("💡 Or try restarting runtime and running again")
-                    return False
+                    print()
+                    print("🛑 SCRIPT PAUSED - Choose one of these options:")
+                    print("1. 🔄 Restart runtime and try again")
+                    print("2. 📁 Use manual upload method (see instructions above)")
+                    print("3. 🎨 Continue with synthetic data (type 'synthetic' and press Enter)")
+                    
+                    # Wait for user input
+                    user_choice = input("Enter your choice (restart/manual/synthetic): ").strip().lower()
+                    
+                    if user_choice in ['synthetic', 's', '2']:
+                        print("🎨 Continuing with synthetic dataset...")
+                        return False
+                    elif user_choice in ['manual', 'm']:
+                        print("📋 Please follow the manual upload instructions above")
+                        print("🔄 After uploading, restart the script and it should detect your dataset")
+                        raise SystemExit("Manual upload chosen - please restart script after uploading")
+                    else:
+                        print("🔄 Please restart runtime and try again")
+                        raise SystemExit("Restart requested - please restart runtime")
                     
                 except Exception as e3:
                     print(f"⚠️ Manual upload also failed: {e3}")
