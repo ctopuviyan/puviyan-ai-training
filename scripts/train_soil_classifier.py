@@ -76,7 +76,7 @@ NUM_CLASSES = 8
 BATCH_SIZE = 32  # Optimized for GPU (increased from 16)
 EPOCHS = 30      # Reduced for faster training
 LEARNING_RATE = 0.001
-SCRIPT_VERSION = "3.1.0"  # Updated with batch processing and memory optimization
+SCRIPT_VERSION = "3.2.0"  # GPU optimized + TensorFlow compatibility fixes
 MAX_IMAGES_PER_CLASS = 200  # Limit images per class to prevent memory issues
 
 # Indian soil type labels
