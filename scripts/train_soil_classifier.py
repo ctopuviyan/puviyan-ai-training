@@ -732,7 +732,7 @@ def create_synthetic_dataset():
     print(f"✅ Dataset created: {len(X_train)} training, {len(X_val)} validation samples")
     return (X_train, y_train), (X_val, y_val)
 
-def create_model():
+def create_model(use_sparse_labels=False):
     """Create the soil classification model optimized for GPU"""
     print("🏗️ Creating soil classification model...")
     
@@ -776,7 +776,7 @@ def create_model():
         layers.Dense(NUM_CLASSES, activation='softmax', dtype='float32')  # Keep output as float32
     ])
     
-    # Compile model with GPU-optimized settings
+    # Compile model with appropriate loss function
     optimizer = keras.optimizers.Adam(
         learning_rate=LEARNING_RATE,
         beta_1=0.9,
@@ -784,9 +784,13 @@ def create_model():
         epsilon=1e-7
     )
     
+    # Choose loss function based on label format
+    loss_function = 'sparse_categorical_crossentropy' if use_sparse_labels else 'categorical_crossentropy'
+    print(f"📊 Using loss function: {loss_function}")
+    
     model.compile(
         optimizer=optimizer,
-        loss='sparse_categorical_crossentropy',
+        loss=loss_function,
         metrics=['accuracy']
     )
     
@@ -1469,11 +1473,13 @@ def main():
         use_generators = False
     
     # Create and train model
-    model = create_model()
-    
     if use_generators:
+        # Real dataset uses one-hot encoded labels (categorical_crossentropy)
+        model = create_model(use_sparse_labels=False)
         history = train_model_with_generators(model, train_generator, val_generator)
     else:
+        # Synthetic dataset uses integer labels (sparse_categorical_crossentropy)
+        model = create_model(use_sparse_labels=True)
         history = train_model(model, train_data, val_data)
     
     # Convert to TensorFlow Lite
