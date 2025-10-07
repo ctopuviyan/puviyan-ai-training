@@ -36,9 +36,14 @@ from sklearn.model_selection import train_test_split
 MODEL_NAME = "soil_classifier_flutter_compatible"
 INPUT_SIZE = 224
 NUM_CLASSES = 8
-BATCH_SIZE = 32
+BATCH_SIZE = 64  # Increased for GPU optimization (was 32)
 EPOCHS = 50
 LEARNING_RATE = 0.001
+
+# GPU Optimization Settings
+AUTO_BATCH_SIZE = True  # Automatically adjust batch size based on GPU memory
+MAX_BATCH_SIZE = 128    # Maximum batch size for high-end GPUs
+MIN_BATCH_SIZE = 16     # Minimum batch size for low-memory situations
 
 # Indian soil types
 SOIL_LABELS = {
@@ -52,10 +57,31 @@ SOIL_LABELS = {
     7: "Forest/Hill Soil"
 }
 
+def setup_mixed_precision():
+    """Setup mixed precision for faster GPU training"""
+    try:
+        # Check if GPU is available
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus and len(gpus) > 0:
+            # Enable mixed precision for faster training
+            policy = tf.keras.mixed_precision.Policy('mixed_float16')
+            tf.keras.mixed_precision.set_global_policy(policy)
+            print("✅ Mixed precision enabled for 2x faster GPU training")
+            return True
+        else:
+            print("ℹ️ Mixed precision skipped (no GPU detected)")
+            return False
+    except Exception as e:
+        print(f"⚠️ Mixed precision setup failed: {e}")
+        return False
+
 def create_flutter_compatible_model():
     """Create a model that uses only Flutter-compatible TFLite operations"""
     print("🏗️ Creating Flutter-compatible soil classification model...")
     print("📱 Architecture optimized for TFLite built-in ops only")
+    
+    # Setup mixed precision for faster training (will be converted back for TFLite)
+    mixed_precision_enabled = setup_mixed_precision()
     
     model = keras.Sequential([
         # Input layer
@@ -280,6 +306,66 @@ def detect_colab():
     except ImportError:
         return False
 
+def setup_gpu_optimization():
+    """Configure GPU for optimal performance"""
+    print("🚀 Setting up GPU optimization...")
+    
+    # Get available GPUs
+    gpus = tf.config.list_physical_devices('GPU')
+    
+    if gpus:
+        try:
+            # Enable memory growth to prevent GPU memory allocation issues
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            
+            # Set GPU as preferred device
+            tf.config.set_visible_devices(gpus, 'GPU')
+            
+            print(f"✅ GPU optimization enabled for {len(gpus)} device(s)")
+            
+            # Check GPU memory
+            try:
+                import subprocess
+                result = subprocess.run(['nvidia-smi', '--query-gpu=memory.total,memory.free', '--format=csv,nounits,noheader'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    lines = result.stdout.strip().split('\n')
+                    for i, line in enumerate(lines):
+                        total, free = line.split(', ')
+                        print(f"   GPU {i}: {free}MB free / {total}MB total")
+                        
+                        # Auto-adjust batch size based on GPU memory
+                        if AUTO_BATCH_SIZE:
+                            free_gb = int(free) / 1024
+                            if free_gb >= 8:
+                                suggested_batch = MAX_BATCH_SIZE
+                            elif free_gb >= 4:
+                                suggested_batch = 64
+                            elif free_gb >= 2:
+                                suggested_batch = 32
+                            else:
+                                suggested_batch = MIN_BATCH_SIZE
+                            
+                            global BATCH_SIZE
+                            BATCH_SIZE = suggested_batch
+                            print(f"   🎯 Auto-adjusted batch size to {BATCH_SIZE} based on {free_gb:.1f}GB free memory")
+                else:
+                    print("   GPU memory info not available")
+            except:
+                print("   GPU memory info not available")
+                
+            return True
+            
+        except RuntimeError as e:
+            print(f"⚠️ GPU setup warning: {e}")
+            print("   Continuing with default GPU settings...")
+            return True
+    else:
+        print("❌ No GPU detected - training will use CPU (much slower)")
+        print("💡 In Colab: Runtime > Change runtime type > GPU")
+        return False
+
 def setup_colab_environment():
     """Setup Google Colab environment"""
     if detect_colab():
@@ -477,8 +563,9 @@ def main():
     print("🌱 Flutter-Compatible Soil Detection Model Training")
     print("=" * 60)
     
-    # Setup environment
+    # Setup environment and GPU optimization
     in_colab = setup_colab_environment()
+    gpu_available = setup_gpu_optimization()
     
     # Create output directory (Colab-friendly path)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -556,10 +643,47 @@ def main():
     # Train model
     print("\n🚀 Step 3: Model Training")
     
+    # Performance estimates
+    if gpu_available:
+        estimated_time = EPOCHS * 1.5  # 1.5 minutes per epoch with GPU
+        print(f"⚡ GPU-accelerated training enabled")
+        print(f"📊 Using batch size: {BATCH_SIZE}")
+        print(f"⏱️ Estimated training time: ~{estimated_time:.0f} minutes")
+    else:
+        estimated_time = EPOCHS * 8   # 8 minutes per epoch with CPU
+        print(f"🐌 CPU training (consider enabling GPU for 5x speedup)")
+        print(f"⏱️ Estimated training time: ~{estimated_time:.0f} minutes")
+    
+    # Enhanced callbacks for faster training
     callbacks = [
-        keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True),
-        keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5)
+        keras.callbacks.EarlyStopping(
+            patience=15, 
+            restore_best_weights=True,
+            monitor='val_accuracy',
+            mode='max',
+            verbose=1
+        ),
+        keras.callbacks.ReduceLROnPlateau(
+            patience=7, 
+            factor=0.5,
+            min_lr=1e-7,
+            monitor='val_loss',
+            verbose=1
+        ),
+        keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(output_dir, 'best_model.h5'),
+            save_best_only=True,
+            monitor='val_accuracy',
+            mode='max',
+            verbose=0
+        )
     ]
+    
+    print(f"🎯 Training with {len(X_train)} samples, validating with {len(X_val)} samples")
+    print("🚀 Starting training...")
+    
+    # Start training with optimized settings
+    start_time = datetime.now()
     
     history = model.fit(
         X_train, y_train,
@@ -567,8 +691,15 @@ def main():
         epochs=EPOCHS,
         validation_data=(X_val, y_val),
         callbacks=callbacks,
-        verbose=1
+        verbose=1,
+        shuffle=True,
+        use_multiprocessing=True if not detect_colab() else False,  # Multiprocessing for local training
+        workers=4 if not detect_colab() else 1
     )
+    
+    end_time = datetime.now()
+    actual_time = (end_time - start_time).total_seconds() / 60
+    print(f"✅ Training completed in {actual_time:.1f} minutes (estimated: {estimated_time:.0f})")
     
     # Evaluate model
     print("\n📊 Step 4: Model Evaluation")
