@@ -226,8 +226,8 @@ def generate_synthetic_soil_data():
         
         return img
     
-    # Generate balanced dataset (optimized for available GPU memory)
-    samples_per_class = 1500  # Increased for better model accuracy with available GPU memory
+    # Generate balanced dataset (memory-optimized)
+    samples_per_class = 800  # Balanced between accuracy and memory efficiency
     total_samples = samples_per_class * NUM_CLASSES
     
     print(f"📊 Generating {samples_per_class} samples per class...")
@@ -236,31 +236,58 @@ def generate_synthetic_soil_data():
         # GPU-accelerated batch generation
         print("⚡ Using GPU batch generation for maximum speed...")
         
-        X_list = []
-        y_list = []
+        X_tensor_list = []
+        y_tensor_list = []
         
         batch_size = 200  # Increased batch size for better GPU utilization
         
         for soil_type in range(NUM_CLASSES):
             print(f"🚀 Generating {samples_per_class} samples for {SOIL_LABELS[soil_type]} (GPU)...")
             
-            # Generate in batches
+            # Generate in batches and keep on GPU
             for batch_start in range(0, samples_per_class, batch_size):
                 batch_end = min(batch_start + batch_size, samples_per_class)
                 current_batch_size = batch_end - batch_start
                 
-                # Generate batch on GPU
+                # Generate batch on GPU and keep it there
                 batch_images = create_soil_texture_gpu(soil_type, current_batch_size)
+                batch_labels = tf.fill([current_batch_size], soil_type)
                 
-                # Convert to numpy and add to list
-                X_list.append(batch_images.numpy())
-                y_list.extend([soil_type] * current_batch_size)
+                # Keep tensors on GPU
+                X_tensor_list.append(batch_images)
+                y_tensor_list.append(batch_labels)
             
             print(f"✅ Generated {samples_per_class} samples for {SOIL_LABELS[soil_type]}")
         
-        # Concatenate all batches
-        X = np.concatenate(X_list, axis=0)
-        y = np.array(y_list, dtype=np.int32)
+        # Keep data on GPU and use TensorFlow for memory-efficient operations
+        print("🔀 Creating shuffled dataset directly on GPU...")
+        
+        # Concatenate all batches on GPU
+        X_tensor = tf.concat(X_tensor_list, axis=0)
+        y_tensor = tf.concat(y_tensor_list, axis=0)
+        
+        # Create dataset and shuffle on GPU
+        dataset = tf.data.Dataset.from_tensor_slices((X_tensor, y_tensor))
+        dataset = dataset.shuffle(buffer_size=min(10000, total_samples), seed=42)
+        
+        # Convert back to numpy in smaller chunks to avoid RAM spike
+        print("📥 Converting to numpy arrays in memory-efficient chunks...")
+        X_chunks = []
+        y_chunks = []
+        
+        chunk_size = 1000
+        for batch in dataset.batch(chunk_size):
+            X_batch, y_batch = batch
+            X_chunks.append(X_batch.numpy())
+            y_chunks.append(y_batch.numpy())
+        
+        # Concatenate chunks
+        X = np.concatenate(X_chunks, axis=0)
+        y = np.concatenate(y_chunks, axis=0)
+        
+        # Clear GPU memory
+        del X_tensor, y_tensor, dataset
+        tf.keras.backend.clear_session()
         
     else:
         # CPU fallback generation
@@ -280,35 +307,10 @@ def generate_synthetic_soil_data():
                 y[start_idx + i] = soil_type
             
             print(f"✅ Generated {samples_per_class} samples for {SOIL_LABELS[soil_type]}")
-    
-    # Shuffle dataset efficiently
-    print("🔀 Shuffling dataset...")
-    
-    # Use more memory-efficient shuffling for large datasets
-    dataset_size = len(X)
-    if dataset_size > 5000:
-        print(f"📊 Large dataset detected ({dataset_size} samples), using efficient shuffling...")
         
-        # Create shuffled indices
-        indices = np.arange(dataset_size)
-        np.random.shuffle(indices)
-        
-        # Shuffle in chunks to avoid memory issues
-        chunk_size = 1000
-        X_shuffled = np.empty_like(X)
-        y_shuffled = np.empty_like(y)
-        
-        for i in range(0, dataset_size, chunk_size):
-            end_idx = min(i + chunk_size, dataset_size)
-            chunk_indices = indices[i:end_idx]
-            X_shuffled[i:end_idx] = X[chunk_indices]
-            y_shuffled[i:end_idx] = y[chunk_indices]
-        
-        X, y = X_shuffled, y_shuffled
-        
-    else:
-        # Standard shuffling for smaller datasets
-        indices = np.random.permutation(dataset_size)
+        # Simple shuffle for CPU-generated data
+        print("🔀 Shuffling dataset...")
+        indices = np.random.permutation(len(X))
         X, y = X[indices], y[indices]
     
     print(f"✅ Synthetic dataset created: {len(X)} samples")
