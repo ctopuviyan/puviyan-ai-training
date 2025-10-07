@@ -226,8 +226,8 @@ def generate_synthetic_soil_data():
         
         return img
     
-    # Generate balanced dataset
-    samples_per_class = 1000
+    # Generate balanced dataset (reduced size for better performance)
+    samples_per_class = 500  # Reduced from 1000 to prevent memory issues
     total_samples = samples_per_class * NUM_CLASSES
     
     print(f"📊 Generating {samples_per_class} samples per class...")
@@ -281,10 +281,35 @@ def generate_synthetic_soil_data():
             
             print(f"✅ Generated {samples_per_class} samples for {SOIL_LABELS[soil_type]}")
     
-    # Shuffle dataset
+    # Shuffle dataset efficiently
     print("🔀 Shuffling dataset...")
-    indices = np.random.permutation(len(X))
-    X, y = X[indices], y[indices]
+    
+    # Use more memory-efficient shuffling for large datasets
+    dataset_size = len(X)
+    if dataset_size > 5000:
+        print(f"📊 Large dataset detected ({dataset_size} samples), using efficient shuffling...")
+        
+        # Create shuffled indices
+        indices = np.arange(dataset_size)
+        np.random.shuffle(indices)
+        
+        # Shuffle in chunks to avoid memory issues
+        chunk_size = 1000
+        X_shuffled = np.empty_like(X)
+        y_shuffled = np.empty_like(y)
+        
+        for i in range(0, dataset_size, chunk_size):
+            end_idx = min(i + chunk_size, dataset_size)
+            chunk_indices = indices[i:end_idx]
+            X_shuffled[i:end_idx] = X[chunk_indices]
+            y_shuffled[i:end_idx] = y[chunk_indices]
+        
+        X, y = X_shuffled, y_shuffled
+        
+    else:
+        # Standard shuffling for smaller datasets
+        indices = np.random.permutation(dataset_size)
+        X, y = X[indices], y[indices]
     
     print(f"✅ Synthetic dataset created: {len(X)} samples")
     
