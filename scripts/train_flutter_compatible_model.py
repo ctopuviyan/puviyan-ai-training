@@ -418,11 +418,15 @@ def create_model_metadata(model_path, accuracy_metrics):
     }
     
     metadata_path = model_path.replace('.tflite', '_info.json')
-    with open(metadata_path, 'w') as f:
-        json.dump(metadata, f, indent=2)
     
-    print(f"✅ Model metadata saved: {metadata_path}")
-    return metadata_path
+    try:
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        print(f"✅ Model metadata saved: {metadata_path}")
+        return metadata_path
+    except Exception as e:
+        print(f"⚠️ Failed to save metadata: {e}")
+        return None
 
 def detect_colab():
     """Detect if running in Google Colab"""
@@ -907,6 +911,10 @@ def main():
     
     # Save training plots
     print("\n📊 Step 7: Saving Training Plots")
+    
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
     plt.figure(figsize=(12, 4))
     
     plt.subplot(1, 2, 1)
@@ -927,8 +935,14 @@ def main():
     
     plt.tight_layout()
     plot_path = os.path.join(output_dir, 'training_history.png')
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    print(f"✅ Training plots saved: {plot_path}")
+    
+    try:
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.close()  # Close the figure to free memory
+        print(f"✅ Training plots saved: {plot_path}")
+    except Exception as e:
+        print(f"⚠️ Failed to save training plots: {e}")
+        plot_path = None
     
     # Final summary
     print("\n🎉 Training Complete!")
@@ -952,7 +966,7 @@ def main():
     
     # Colab download instructions
     if in_colab:
-        show_colab_download_instructions(model_path, metadata_path, plot_path)
+        show_colab_download_instructions(model_path, metadata_path, plot_path if plot_path else "training_history.png")
         
     # Test Flutter compatibility
     print("\n🧪 Testing Flutter compatibility of generated model...")
