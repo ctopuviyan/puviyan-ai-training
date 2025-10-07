@@ -134,14 +134,68 @@ def create_flutter_compatible_model():
     return model
 
 def generate_synthetic_soil_data():
-    """Generate synthetic soil images for training"""
+    """Generate synthetic soil images for training using GPU acceleration"""
     print("🎨 Generating synthetic soil dataset...")
     
-    def create_soil_texture(soil_type, size=(INPUT_SIZE, INPUT_SIZE)):
-        """Create realistic soil texture based on soil type"""
-        np.random.seed(42 + soil_type)  # Consistent seed for reproducibility
+    # Check if GPU is available for data generation
+    gpus = tf.config.list_physical_devices('GPU')
+    use_gpu = len(gpus) > 0
+    
+    if use_gpu:
+        print("⚡ Using GPU acceleration for synthetic data generation")
+    else:
+        print("🔄 Using CPU for synthetic data generation")
+    
+    @tf.function
+    def create_soil_texture_gpu(soil_type, batch_size=100):
+        """Create realistic soil texture using GPU operations"""
         
-        # Base color ranges for different soil types
+        # Base color ranges for different soil types (as tensors)
+        color_ranges = tf.constant([
+            [[0.4, 0.3, 0.2], [0.7, 0.5, 0.3]],  # Alluvial - brown
+            [[0.1, 0.1, 0.1], [0.3, 0.3, 0.3]],  # Black - dark
+            [[0.5, 0.2, 0.1], [0.8, 0.4, 0.2]],  # Red - reddish
+            [[0.6, 0.3, 0.2], [0.9, 0.5, 0.3]],  # Laterite - orange-red
+            [[0.7, 0.6, 0.4], [0.9, 0.8, 0.6]],  # Desert - sandy
+            [[0.6, 0.6, 0.5], [0.8, 0.8, 0.7]],  # Saline - whitish
+            [[0.2, 0.3, 0.1], [0.4, 0.5, 0.3]],  # Peaty - dark green
+            [[0.3, 0.2, 0.1], [0.5, 0.4, 0.3]],  # Forest - rich brown
+        ], dtype=tf.float32)
+        
+        min_color = color_ranges[soil_type, 0]
+        max_color = color_ranges[soil_type, 1]
+        
+        # Generate base texture using GPU
+        shape = (batch_size, INPUT_SIZE, INPUT_SIZE, 3)
+        
+        # Create base random texture
+        base_texture = tf.random.uniform(shape, minval=0.0, maxval=1.0)
+        
+        # Apply color range
+        color_range = max_color - min_color
+        colored_texture = min_color + base_texture * color_range
+        
+        # Add noise for texture variation
+        noise = tf.random.normal(shape, mean=0.0, stddev=0.1)
+        textured = colored_texture + noise
+        
+        # Add granular patterns using convolution
+        # Create random kernels for texture
+        kernel = tf.random.normal((5, 5, 3, 3), stddev=0.1)
+        granular = tf.nn.conv2d(textured, kernel, strides=[1, 1, 1, 1], padding='SAME')
+        
+        # Blend original with granular texture
+        final_texture = 0.7 * textured + 0.3 * tf.nn.tanh(granular)
+        
+        # Clip to valid range
+        final_texture = tf.clip_by_value(final_texture, 0.0, 1.0)
+        
+        return final_texture
+    
+    def create_soil_texture_cpu(soil_type, size=(INPUT_SIZE, INPUT_SIZE)):
+        """Fallback CPU version for compatibility"""
+        np.random.seed(42 + soil_type)
+        
         color_ranges = {
             0: ([0.4, 0.3, 0.2], [0.7, 0.5, 0.3]),  # Alluvial - brown
             1: ([0.1, 0.1, 0.1], [0.3, 0.3, 0.3]),  # Black - dark
@@ -154,22 +208,16 @@ def generate_synthetic_soil_data():
         }
         
         min_color, max_color = color_ranges[soil_type]
-        
-        # Generate base texture
         img = np.random.uniform(min_color[0], max_color[0], size + (3,))
         
-        # Add soil-specific patterns
-        for i in range(3):  # RGB channels
+        for i in range(3):
             channel = np.random.uniform(min_color[i], max_color[i], size)
-            
-            # Add texture noise
             noise = np.random.normal(0, 0.1, size)
             channel = np.clip(channel + noise, 0, 1)
             
-            # Add some granular texture
-            for _ in range(20):
+            for _ in range(10):  # Reduced iterations for speed
                 x, y = np.random.randint(0, size[0]), np.random.randint(0, size[1])
-                radius = np.random.randint(2, 8)
+                radius = np.random.randint(2, 6)
                 xx, yy = np.meshgrid(np.arange(size[1]), np.arange(size[0]))
                 mask = (xx - x)**2 + (yy - y)**2 < radius**2
                 channel[mask] *= np.random.uniform(0.8, 1.2)
@@ -182,26 +230,70 @@ def generate_synthetic_soil_data():
     samples_per_class = 1000
     total_samples = samples_per_class * NUM_CLASSES
     
-    X = np.zeros((total_samples, INPUT_SIZE, INPUT_SIZE, 3), dtype=np.float32)
-    y = np.zeros(total_samples, dtype=np.int32)
-    
     print(f"📊 Generating {samples_per_class} samples per class...")
     
-    for soil_type in range(NUM_CLASSES):
-        start_idx = soil_type * samples_per_class
-        end_idx = start_idx + samples_per_class
+    if use_gpu:
+        # GPU-accelerated batch generation
+        print("⚡ Using GPU batch generation for maximum speed...")
         
-        for i in range(samples_per_class):
-            X[start_idx + i] = create_soil_texture(soil_type)
-            y[start_idx + i] = soil_type
+        X_list = []
+        y_list = []
         
-        print(f"✅ Generated {samples_per_class} samples for {SOIL_LABELS[soil_type]}")
+        batch_size = 100  # Generate in batches for memory efficiency
+        
+        for soil_type in range(NUM_CLASSES):
+            print(f"🚀 Generating {samples_per_class} samples for {SOIL_LABELS[soil_type]} (GPU)...")
+            
+            # Generate in batches
+            for batch_start in range(0, samples_per_class, batch_size):
+                batch_end = min(batch_start + batch_size, samples_per_class)
+                current_batch_size = batch_end - batch_start
+                
+                # Generate batch on GPU
+                batch_images = create_soil_texture_gpu(soil_type, current_batch_size)
+                
+                # Convert to numpy and add to list
+                X_list.append(batch_images.numpy())
+                y_list.extend([soil_type] * current_batch_size)
+            
+            print(f"✅ Generated {samples_per_class} samples for {SOIL_LABELS[soil_type]}")
+        
+        # Concatenate all batches
+        X = np.concatenate(X_list, axis=0)
+        y = np.array(y_list, dtype=np.int32)
+        
+    else:
+        # CPU fallback generation
+        print("🔄 Using CPU generation (slower but compatible)...")
+        
+        X = np.zeros((total_samples, INPUT_SIZE, INPUT_SIZE, 3), dtype=np.float32)
+        y = np.zeros(total_samples, dtype=np.int32)
+        
+        for soil_type in range(NUM_CLASSES):
+            start_idx = soil_type * samples_per_class
+            end_idx = start_idx + samples_per_class
+            
+            print(f"🔄 Generating {samples_per_class} samples for {SOIL_LABELS[soil_type]} (CPU)...")
+            
+            for i in range(samples_per_class):
+                X[start_idx + i] = create_soil_texture_cpu(soil_type)
+                y[start_idx + i] = soil_type
+            
+            print(f"✅ Generated {samples_per_class} samples for {SOIL_LABELS[soil_type]}")
     
     # Shuffle dataset
-    indices = np.random.permutation(total_samples)
+    print("🔀 Shuffling dataset...")
+    indices = np.random.permutation(len(X))
     X, y = X[indices], y[indices]
     
-    print(f"✅ Synthetic dataset created: {total_samples} samples")
+    print(f"✅ Synthetic dataset created: {len(X)} samples")
+    
+    # Performance summary
+    if use_gpu:
+        print("⚡ GPU acceleration used for data generation - much faster!")
+    else:
+        print("🔄 CPU generation completed - consider GPU for faster data creation")
+    
     return X, y
 
 def convert_to_flutter_tflite(model, output_path):
