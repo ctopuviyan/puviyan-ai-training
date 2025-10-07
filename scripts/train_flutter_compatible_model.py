@@ -59,28 +59,13 @@ SOIL_LABELS = {
 
 def setup_mixed_precision():
     """Setup mixed precision for faster GPU training"""
-    try:
-        # Check if GPU is available and supports mixed precision
-        gpus = tf.config.list_physical_devices('GPU')
-        if gpus and len(gpus) > 0:
-            # Check GPU compute capability for mixed precision support
-            try:
-                # Enable mixed precision for faster training
-                policy = tf.keras.mixed_precision.Policy('mixed_float16')
-                tf.keras.mixed_precision.set_global_policy(policy)
-                print("✅ Mixed precision enabled for 2x faster GPU training")
-                print("📱 Note: Model will be converted to float32 for TFLite compatibility")
-                return True
-            except Exception as e:
-                print(f"⚠️ Mixed precision not supported on this GPU: {e}")
-                print("🔄 Continuing with float32 training...")
-                return False
-        else:
-            print("ℹ️ Mixed precision skipped (no GPU detected)")
-            return False
-    except Exception as e:
-        print(f"⚠️ Mixed precision setup failed: {e}")
-        return False
+    # DISABLED for TFLite compatibility - mixed precision causes conversion issues
+    print("ℹ️ Mixed precision disabled for maximum TFLite compatibility")
+    print("📱 Using float32 training to ensure Flutter compatibility")
+    
+    # Ensure float32 policy is set
+    tf.keras.mixed_precision.set_global_policy('float32')
+    return False
 
 def create_flutter_compatible_model():
     """Create a model that uses only Flutter-compatible TFLite operations"""
@@ -337,12 +322,11 @@ def convert_to_flutter_tflite(model, output_path):
     """Convert model to Flutter-compatible TensorFlow Lite"""
     print("📱 Converting to Flutter-compatible TensorFlow Lite...")
     
-    # Disable mixed precision for TFLite conversion
-    original_policy = tf.keras.mixed_precision.global_policy()
+    # Ensure float32 policy for TFLite conversion
     tf.keras.mixed_precision.set_global_policy('float32')
     
-    # Use original model but ensure proper TFLite conversion
-    print("🔄 Preparing model for TFLite conversion...")
+    # Create converter
+    print("🔄 Creating TFLite converter...")
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     
     # CRITICAL: Use ONLY built-in TFLite ops for Flutter compatibility
@@ -350,7 +334,7 @@ def convert_to_flutter_tflite(model, output_path):
         tf.lite.OpsSet.TFLITE_BUILTINS  # Only standard TFLite operations
     ]
     
-    # Enable optimizations
+    # Enable optimizations for smaller model size
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     
     # Create representative dataset for quantization
@@ -371,36 +355,26 @@ def convert_to_flutter_tflite(model, output_path):
     print("🔄 Converting model (this may take a few minutes)...")
     
     try:
+        # Primary conversion with quantization
         tflite_model = converter.convert()
-        print("✅ Model conversion successful!")
-    except Exception as e:
-        print(f"❌ Conversion failed: {e}")
-        print("🔄 Trying fallback conversion methods...")
+        print("✅ Model conversion successful with quantization!")
         
-        # Fallback 1: Disable quantization
+    except Exception as e:
+        print(f"⚠️ Quantized conversion failed: {e}")
+        print("🔄 Attempting without quantization for maximum compatibility...")
+        
+        # Fallback: Disable quantization for compatibility
+        converter = tf.lite.TFLiteConverter.from_keras_model(model)
+        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
+        # No optimizations for maximum compatibility
+        
         try:
-            print("🔄 Attempting without quantization...")
-            converter = tf.lite.TFLiteConverter.from_keras_model(model)
-            converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
-            # No optimizations for maximum compatibility
             tflite_model = converter.convert()
-            print("✅ Fallback conversion successful (no quantization)")
+            print("✅ Float32 model conversion successful!")
         except Exception as e2:
-            print(f"❌ Fallback 1 failed: {e2}")
-            
-            # Fallback 2: Allow TF Select ops if needed
-            try:
-                print("🔄 Attempting with TF Select ops...")
-                converter = tf.lite.TFLiteConverter.from_keras_model(model)
-                converter.target_spec.supported_ops = [
-                    tf.lite.OpsSet.TFLITE_BUILTINS,
-                    tf.lite.OpsSet.SELECT_TF_OPS
-                ]
-                tflite_model = converter.convert()
-                print("⚠️ Model created with TF Select ops (may need special Flutter setup)")
-            except Exception as e3:
-                print(f"❌ All conversion methods failed: {e3}")
-                raise e3
+            print(f"❌ Float32 conversion also failed: {e2}")
+            print("💡 This suggests the model architecture may not be fully TFLite compatible")
+            raise e2
     
     # Save model
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -411,9 +385,6 @@ def convert_to_flutter_tflite(model, output_path):
     model_size_mb = len(tflite_model) / (1024 * 1024)
     print(f"✅ Flutter-compatible TFLite model saved: {output_path}")
     print(f"📊 Model size: {model_size_mb:.2f} MB")
-    
-    # Restore original mixed precision policy
-    tf.keras.mixed_precision.set_global_policy(original_policy)
     
     return tflite_model
 
