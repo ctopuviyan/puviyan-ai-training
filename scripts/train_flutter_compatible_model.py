@@ -60,14 +60,21 @@ SOIL_LABELS = {
 def setup_mixed_precision():
     """Setup mixed precision for faster GPU training"""
     try:
-        # Check if GPU is available
+        # Check if GPU is available and supports mixed precision
         gpus = tf.config.list_physical_devices('GPU')
         if gpus and len(gpus) > 0:
-            # Enable mixed precision for faster training
-            policy = tf.keras.mixed_precision.Policy('mixed_float16')
-            tf.keras.mixed_precision.set_global_policy(policy)
-            print("✅ Mixed precision enabled for 2x faster GPU training")
-            return True
+            # Check GPU compute capability for mixed precision support
+            try:
+                # Enable mixed precision for faster training
+                policy = tf.keras.mixed_precision.Policy('mixed_float16')
+                tf.keras.mixed_precision.set_global_policy(policy)
+                print("✅ Mixed precision enabled for 2x faster GPU training")
+                print("📱 Note: Model will be converted to float32 for TFLite compatibility")
+                return True
+            except Exception as e:
+                print(f"⚠️ Mixed precision not supported on this GPU: {e}")
+                print("🔄 Continuing with float32 training...")
+                return False
         else:
             print("ℹ️ Mixed precision skipped (no GPU detected)")
             return False
@@ -330,8 +337,30 @@ def convert_to_flutter_tflite(model, output_path):
     """Convert model to Flutter-compatible TensorFlow Lite"""
     print("📱 Converting to Flutter-compatible TensorFlow Lite...")
     
-    # Create converter
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    # Disable mixed precision for TFLite conversion
+    original_policy = tf.keras.mixed_precision.global_policy()
+    tf.keras.mixed_precision.set_global_policy('float32')
+    
+    # Clone model with float32 precision for TFLite compatibility
+    print("🔄 Converting model to float32 for TFLite compatibility...")
+    
+    # Create a new model with the same architecture but float32 precision
+    float32_model = keras.Sequential()
+    for layer in model.layers:
+        # Clone each layer but ensure float32 dtype
+        layer_config = layer.get_config()
+        if 'dtype' in layer_config:
+            layer_config['dtype'] = 'float32'
+        
+        # Create new layer with float32
+        new_layer = type(layer).from_config(layer_config)
+        float32_model.add(new_layer)
+    
+    # Copy weights
+    float32_model.set_weights(model.get_weights())
+    
+    # Create converter from float32 model
+    converter = tf.lite.TFLiteConverter.from_keras_model(float32_model)
     
     # CRITICAL: Use ONLY built-in TFLite ops for Flutter compatibility
     converter.target_spec.supported_ops = [
@@ -381,6 +410,9 @@ def convert_to_flutter_tflite(model, output_path):
     model_size_mb = len(tflite_model) / (1024 * 1024)
     print(f"✅ Flutter-compatible TFLite model saved: {output_path}")
     print(f"📊 Model size: {model_size_mb:.2f} MB")
+    
+    # Restore original mixed precision policy
+    tf.keras.mixed_precision.set_global_policy(original_policy)
     
     return tflite_model
 
