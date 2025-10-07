@@ -941,9 +941,48 @@ def main():
     print("\n📱 Model is ready for Flutter integration!")
     print("🔧 Copy the .tflite file to your Flutter app's assets/models/ directory")
     
+    # Copy model to current directory for easier access
+    import shutil
+    current_dir_model = f"{MODEL_NAME}.tflite"
+    try:
+        shutil.copy2(model_path, current_dir_model)
+        print(f"📁 Model copied to current directory: {current_dir_model}")
+    except Exception as e:
+        print(f"⚠️ Could not copy model to current directory: {e}")
+    
     # Colab download instructions
     if in_colab:
         show_colab_download_instructions(model_path, metadata_path, plot_path)
+        
+    # Test Flutter compatibility
+    print("\n🧪 Testing Flutter compatibility of generated model...")
+    try:
+        import subprocess
+        import os
+        
+        # Download the test script if it doesn't exist
+        test_script = "test_flutter_compatibility.py"
+        if not os.path.exists(test_script):
+            subprocess.run([
+                "wget", "-O", test_script,
+                "https://raw.githubusercontent.com/ctopuviyan/puviyan-ai-training/main/scripts/test_flutter_compatibility.py"
+            ], check=True)
+        
+        # Run the compatibility test on the copied model
+        result = subprocess.run([
+            "python", test_script, current_dir_model
+        ], capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            print("✅ Flutter compatibility test passed!")
+            print(result.stdout)
+        else:
+            print("⚠️ Flutter compatibility test had issues:")
+            print(result.stderr)
+            
+    except Exception as e:
+        print(f"⚠️ Could not run Flutter compatibility test: {e}")
+        print(f"💡 You can manually test with: python test_flutter_compatibility.py {current_dir_model}")
 
 def show_colab_download_instructions(model_path, metadata_path, plot_path):
     """Show download instructions for Google Colab"""
@@ -954,17 +993,28 @@ def show_colab_download_instructions(model_path, metadata_path, plot_path):
     
     try:
         from google.colab import files
+        import os
         
-        print("📱 Downloading TFLite model...")
-        files.download(model_path)
+        # Check if files exist before trying to download
+        if os.path.exists(model_path):
+            print("📱 Downloading TFLite model...")
+            files.download(model_path)
+        else:
+            print(f"⚠️ Model file not found: {model_path}")
         
-        print("📄 Downloading metadata...")
-        files.download(metadata_path)
+        if os.path.exists(metadata_path):
+            print("📄 Downloading metadata...")
+            files.download(metadata_path)
+        else:
+            print(f"⚠️ Metadata file not found: {metadata_path}")
         
-        print("📊 Downloading training plots...")
-        files.download(plot_path)
+        if os.path.exists(plot_path):
+            print("📊 Downloading training plots...")
+            files.download(plot_path)
+        else:
+            print(f"⚠️ Plot file not found: {plot_path}")
         
-        print("✅ All files downloaded successfully!")
+        print("✅ Available files downloaded successfully!")
         
     except ImportError:
         print("⚠️ Not in Colab environment, skipping auto-download")
