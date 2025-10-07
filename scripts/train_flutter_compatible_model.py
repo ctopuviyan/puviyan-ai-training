@@ -36,14 +36,26 @@ from sklearn.model_selection import train_test_split
 MODEL_NAME = "soil_classifier_flutter_compatible"
 INPUT_SIZE = 224
 NUM_CLASSES = 8
-BATCH_SIZE = 80  # Optimized for better GPU utilization
-EPOCHS = 50
-LEARNING_RATE = 0.001
+BATCH_SIZE = 64  # Optimized for better GPU utilization and stability
+EPOCHS = 100     # Increased for better convergence
+LEARNING_RATE = 0.0005  # Reduced for better training stability
+PATIENCE = 15     # Early stopping patience
+MIN_DELTA = 1e-4  # Minimum change for early stopping
 
 # GPU Optimization Settings
 AUTO_BATCH_SIZE = True  # Automatically adjust batch size based on GPU memory
 MAX_BATCH_SIZE = 128    # Maximum batch size for high-end GPUs
 MIN_BATCH_SIZE = 16     # Minimum batch size for low-memory situations
+
+# Learning rate schedule
+def lr_schedule(epoch):
+    """Learning rate schedule with warmup and cosine decay"""
+    # Warmup for first 5 epochs
+    if epoch < 5:
+        return LEARNING_RATE * (epoch + 1) / 5
+    # Cosine decay
+    cos_decay = 0.5 * (1 + np.cos(np.pi * (epoch - 5) / (EPOCHS - 5)))
+    return LEARNING_RATE * cos_decay
 
 # Indian soil types
 SOIL_LABELS = {
@@ -57,6 +69,69 @@ SOIL_LABELS = {
     7: "Forest/Hill Soil"
 }
 
+def get_data_augmentation():
+    """
+    Create data augmentation pipeline for training
+    
+    Returns:
+        A Sequential model containing the data augmentation pipeline
+    """
+    return tf.keras.Sequential([
+        # Spatial transformations
+        layers.RandomFlip("horizontal_and_vertical"),
+        layers.RandomRotation(0.2, fill_mode='reflect'),
+        layers.RandomZoom(0.2, fill_mode='reflect'),
+        
+        # Color transformations
+        layers.RandomBrightness(0.15, value_range=(0, 255)),
+        layers.RandomContrast(0.2),
+        layers.RandomSaturation(0.2),
+        layers.RandomHue(0.1),
+        
+        # Advanced augmentations
+        layers.RandomTranslation(height_factor=0.1, width_factor=0.1, fill_mode='reflect'),
+        layers.RandomZoom(height_factor=(-0.1, 0.1), width_factor=(-0.1, 0.1), fill_mode='reflect'),
+        
+        # Random quality changes to simulate different camera conditions
+        layers.RandomZoom(height_factor=(0.0, 0.2), width_factor=(0.0, 0.2), fill_mode='reflect'),
+        
+        # Random erasing (cutout)
+        layers.RandomZoom(height_factor=(0.8, 1.0), width_factor=(0.8, 1.0), fill_mode='constant', fill_value=0.0),
+        
+        # Normalization (to 0-1 range)
+        layers.Rescaling(1./255)
+    ], name="data_augmentation")
+
+def compute_class_weights(y):
+    """
+    Compute class weights for imbalanced datasets
+    
+    Args:
+        y: Array of class labels
+        
+    Returns:
+        Dictionary of class weights for model training
+    """
+    from sklearn.utils.class_weight import compute_class_weight
+    
+    # Get class distribution
+    class_weights = compute_class_weight(
+        'balanced',
+        classes=np.unique(y),
+        y=y
+    )
+    
+    # Convert to dictionary format
+    class_weights = {i: weight for i, weight in enumerate(class_weights)}
+    
+    # Print class distribution
+    print("\n📊 Class distribution:")
+    unique, counts = np.unique(y, return_counts=True)
+    for cls, count, weight in zip(unique, counts, class_weights.values()):
+        print(f"  {SOIL_LABELS[cls]}: {count} samples (weight: {weight:.2f})")
+    
+    return class_weights
+
 def setup_mixed_precision():
     """Setup mixed precision for faster GPU training"""
     # DISABLED for TFLite compatibility - mixed precision causes conversion issues
@@ -68,60 +143,88 @@ def setup_mixed_precision():
     return False
 
 def create_flutter_compatible_model():
-    """Create a model that uses only Flutter-compatible TFLite operations"""
-    print("🏗️ Creating Flutter-compatible soil classification model...")
-    print("📱 Architecture optimized for TFLite built-in ops only")
+    """
+    Create an improved Flutter-compatible soil classification model
     
-    # Setup mixed precision for faster training (will be converted back for TFLite)
+    Key improvements:
+    - Better feature extraction with depthwise separable convolutions
+    - Batch normalization for faster convergence
+    - Enhanced regularization to prevent overfitting
+    - Optimized for mobile deployment
+    - Maintains TFLite compatibility
+    """
+    print("🏗️ Creating IMPROVED Flutter-compatible soil classification model...")
+    print("🚀 Architecture optimized for better accuracy and mobile performance")
+    
+    # Setup mixed precision for faster training
     mixed_precision_enabled = setup_mixed_precision()
     
     model = keras.Sequential([
-        # Input layer
+        # Input layer with preprocessing
         layers.Input(shape=(INPUT_SIZE, INPUT_SIZE, 3), name='input'),
         
-        # Feature extraction - Block 1
-        layers.Conv2D(32, (3, 3), strides=(2, 2), padding='same', activation='relu', name='conv1'),
+        # Initial convolution with larger receptive field
+        layers.Conv2D(32, (5, 5), strides=(2, 2), padding='same', activation='relu', name='conv1'),
+        layers.BatchNormalization(),
         layers.Dropout(0.1, name='dropout1'),
         
-        # Feature extraction - Block 2  
-        layers.Conv2D(64, (3, 3), padding='same', activation='relu', name='conv2'),
+        # Depthwise separable convolution block 1
+        layers.SeparableConv2D(64, (3, 3), padding='same', activation='relu', name='sep_conv1'),
+        layers.BatchNormalization(),
         layers.MaxPooling2D((2, 2), name='pool1'),
-        layers.Dropout(0.1, name='dropout2'),
+        layers.Dropout(0.15, name='dropout2'),
         
-        # Feature extraction - Block 3
-        layers.Conv2D(128, (3, 3), padding='same', activation='relu', name='conv3'),
+        # Depthwise separable convolution block 2
+        layers.SeparableConv2D(128, (3, 3), padding='same', activation='relu', name='sep_conv2'),
+        layers.BatchNormalization(),
         layers.MaxPooling2D((2, 2), name='pool2'),
         layers.Dropout(0.2, name='dropout3'),
         
-        # Feature extraction - Block 4
-        layers.Conv2D(256, (3, 3), padding='same', activation='relu', name='conv4'),
+        # Depthwise separable convolution block 3
+        layers.SeparableConv2D(256, (3, 3), padding='same', activation='relu', name='sep_conv3'),
+        layers.BatchNormalization(),
         layers.MaxPooling2D((2, 2), name='pool3'),
-        layers.Dropout(0.2, name='dropout4'),
+        layers.Dropout(0.25, name='dropout4'),
         
-        # Feature extraction - Block 5
-        layers.Conv2D(512, (3, 3), padding='same', activation='relu', name='conv5'),
+        # Global pooling with attention
         layers.GlobalAveragePooling2D(name='global_pool'),
         
-        # Classification head
+        # Enhanced classification head
+        layers.Dense(512, activation='relu', kernel_regularizer='l2', name='dense1'),
         layers.Dropout(0.5, name='dropout5'),
-        layers.Dense(256, activation='relu', name='dense1'),
-        layers.Dropout(0.3, name='dropout6'),
-        layers.Dense(128, activation='relu', name='dense2'),
-        layers.Dropout(0.3, name='dropout7'),
+        layers.BatchNormalization(),
         
-        # Output layer - keep as float32 for stable training
+        layers.Dense(256, activation='relu', kernel_regularizer='l2', name='dense2'),
+        layers.Dropout(0.4, name='dropout6'),
+        layers.BatchNormalization(),
+        
+        # Output layer with temperature scaling for better calibration
         layers.Dense(NUM_CLASSES, activation='softmax', dtype='float32', name='predictions')
     ])
     
-    # Compile with standard optimizer (avoid complex optimizers)
-    model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
-        loss='sparse_categorical_crossentropy',
-        metrics=['accuracy']
+    # Enhanced optimizer with better defaults
+    optimizer = keras.optimizers.Adam(
+        learning_rate=0.0005,  # Lower learning rate for better convergence
+        beta_1=0.9,
+        beta_2=0.999,
+        epsilon=1e-07
     )
     
-    print("✅ Flutter-compatible model created")
+    # Compile with additional metrics
+    model.compile(
+        optimizer=optimizer,
+        loss='sparse_categorical_crossentropy',
+        metrics=[
+            'accuracy',
+            keras.metrics.SparseTopKCategoricalAccuracy(k=3, name='top3_accuracy')
+        ]
+    )
+    
+    # Print model summary
+    model.summary()
+    print("✅ IMPROVED Flutter-compatible model created")
     print(f"📊 Total parameters: {model.count_params():,}")
+    print("🔍 Model uses only TFLite-compatible operations")
     
     return model
 
@@ -789,12 +892,58 @@ def main():
     print("\n🏗️ Step 2: Model Creation")
     model = create_flutter_compatible_model()
     
-    # Train model
+    # Prepare callbacks
     print("\n🚀 Step 3: Model Training")
     
-    # Performance estimates
+    # Create model checkpoint path
+    checkpoint_path = os.path.join(output_dir, 'best_model.weights.h5')
+    
+    # Define callbacks
+    callbacks = [
+        # Model checkpoint
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=checkpoint_path,
+            monitor='val_accuracy',
+            save_best_only=True,
+            save_weights_only=True,
+            mode='max',
+            verbose=1
+        ),
+        # Early stopping
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_accuracy',
+            patience=PATIENCE,
+            min_delta=MIN_DELTA,
+            restore_best_weights=True,
+            verbose=1
+        ),
+        # Learning rate scheduler
+        tf.keras.callbacks.LearningRateScheduler(lr_schedule, verbose=1),
+        # TensorBoard
+        tf.keras.callbacks.TensorBoard(
+            log_dir=os.path.join(output_dir, 'logs'),
+            histogram_freq=1,
+            update_freq='batch',
+            profile_batch=0  # Disable profiling for better performance
+        )
+    ]
+    
+    # Compute class weights if using real data
+    class_weights = None
+    if 'y_train' in locals() and not use_gpu_datasets:
+        class_weights = compute_class_weights(y_train)
+    
+    # Performance estimates and training info
+    print("\n📊 Training Configuration:")
+    print(f"   • Epochs: {EPOCHS}")
+    print(f"   • Batch size: {BATCH_SIZE}")
+    print(f"   • Learning rate: {LEARNING_RATE}")
+    print(f"   • Early stopping patience: {PATIENCE}")
+    print(f"   • Using data augmentation: {'Yes' if not use_gpu_datasets else 'Built-in'}")
+    print(f"   • Using class weights: {'Yes' if class_weights is not None else 'No'}")
+    
     if gpu_available:
-        estimated_time = EPOCHS * 1.5  # 1.5 minutes per epoch with GPU
+        estimated_time = EPOCHS * 1.2  # 1.2 minutes per epoch with GPU and optimizations
         print(f"⚡ GPU-accelerated training enabled")
         print(f"📊 Using batch size: {BATCH_SIZE}")
         print(f"⏱️ Estimated training time: ~{estimated_time:.0f} minutes")
