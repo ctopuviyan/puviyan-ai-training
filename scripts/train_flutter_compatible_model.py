@@ -784,9 +784,7 @@ def main():
         validation_data=(X_val, y_val),
         callbacks=callbacks,
         verbose=1,
-        shuffle=True,
-        use_multiprocessing=True if not detect_colab() else False,  # Multiprocessing for local training
-        workers=4 if not detect_colab() else 1
+        shuffle=True
     )
     
     end_time = datetime.now()
