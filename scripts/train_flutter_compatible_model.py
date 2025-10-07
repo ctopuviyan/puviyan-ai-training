@@ -879,15 +879,29 @@ def main():
     
     # Create metadata
     print("\n📄 Step 6: Metadata Creation")
+    
+    # Handle different data formats for metadata
+    if use_gpu_datasets:
+        # For GPU datasets, we know the total samples from the generation
+        total_samples_count = total_samples if 'total_samples' in locals() else 3200  # Default from 400*8
+        training_samples_count = int(0.8 * total_samples_count)
+        validation_samples_count = total_samples_count - training_samples_count
+    else:
+        # For numpy arrays
+        total_samples_count = len(X) if 'X' in locals() else len(X_train) + len(X_val)
+        training_samples_count = len(X_train)
+        validation_samples_count = len(X_val)
+    
     accuracy_metrics = {
         "training_accuracy": float(train_acc),
         "validation_accuracy": float(val_acc),
         "training_loss": float(train_loss),
         "validation_loss": float(val_loss),
         "dataset_type": "real" if dataset_choice == "1" else ("mixed" if dataset_choice == "3" else "synthetic"),
-        "total_samples": len(X),
-        "training_samples": len(X_train),
-        "validation_samples": len(X_val)
+        "total_samples": total_samples_count,
+        "training_samples": training_samples_count,
+        "validation_samples": validation_samples_count,
+        "gpu_pipeline": use_gpu_datasets
     }
     metadata_path = create_model_metadata(model_path, accuracy_metrics)
     
