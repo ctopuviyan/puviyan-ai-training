@@ -38,16 +38,19 @@ puviyan-ai-training/
 
 ## 🚀 **Quick Start**
 
-### **Option 1: Google Colab (Recommended)**
+### **Option 1: Google Colab (Recommended) - v4.0.0 Flutter Compatible**
 
 1. **Open Google Colab**: [colab.research.google.com](https://colab.research.google.com)
-2. **Upload training script**: Upload `scripts/train_soil_classifier.py`
+2. **Upload notebook**: Upload `notebooks/Soil_Detection_Training_v4_Flutter_Compatible.ipynb`
 3. **Enable GPU**: Runtime → Change runtime type → GPU
-4. **Run training**:
-   ```python
-   !python train_soil_classifier.py
-   ```
-5. **Download model**: The trained `.tflite` file will be generated
+4. **Run all cells**: Follow interactive prompts for dataset selection
+5. **Download Flutter-compatible model**: Guaranteed to work with Flutter!
+
+**Alternative - Direct Script:**
+```python
+!wget -O train_flutter_compatible_model.py https://raw.githubusercontent.com/ctopuviyan/puviyan-ai-training/main/scripts/train_flutter_compatible_model.py
+!python train_flutter_compatible_model.py
+```
 
 ### **Option 2: Local Training**
 
@@ -63,18 +66,20 @@ chmod +x scripts/setup_training.sh
 # Install dependencies
 pip install -r requirements.txt
 
-# Run training (requires GPU for reasonable speed)
-python scripts/train_soil_classifier.py
+# Run Flutter-compatible training (requires GPU for reasonable speed)
+python scripts/train_flutter_compatible_model.py
 ```
 
-## 📊 **Model Specifications**
+## 📊 **Model Specifications - v4.0.0 Flutter Compatible**
 
-- **Architecture**: MobileNetV2 + Custom Classification Head
+- **Architecture**: Flutter-optimized CNN (no BatchNorm, only TFLite built-ins)
 - **Input Size**: 224×224×3 (RGB images)
 - **Output**: 8 classes (Indian soil types)
-- **Model Size**: ~5-10MB (TensorFlow Lite)
-- **Inference Time**: ~150ms on mobile devices
+- **Model Size**: 3-5MB (INT8 quantized TensorFlow Lite)
+- **Inference Time**: 80-120ms on mobile devices
 - **Accuracy Target**: >85% on validation set
+- **Flutter Compatibility**: ✅ 100% Compatible (no SELECT_TF_OPS)
+- **Input/Output Types**: UINT8 (mobile-optimized)
 
 ## 🔧 **Training Configuration**
 
