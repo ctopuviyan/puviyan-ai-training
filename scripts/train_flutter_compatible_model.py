@@ -25,6 +25,12 @@ import os
 import json
 from datetime import datetime
 import matplotlib.pyplot as plt
+import zipfile
+from pathlib import Path
+import shutil
+from PIL import Image
+import random
+from sklearn.model_selection import train_test_split
 
 # Configuration for Flutter compatibility
 MODEL_NAME = "soil_classifier_flutter_compatible"
@@ -266,24 +272,279 @@ def create_model_metadata(model_path, accuracy_metrics):
     print(f"✅ Model metadata saved: {metadata_path}")
     return metadata_path
 
+def detect_colab():
+    """Detect if running in Google Colab"""
+    try:
+        import google.colab
+        return True
+    except ImportError:
+        return False
+
+def setup_colab_environment():
+    """Setup Google Colab environment"""
+    if detect_colab():
+        print("🔧 Setting up Google Colab environment...")
+        
+        # Install required packages
+        import subprocess
+        import sys
+        
+        packages = ['tensorflow>=2.13.0', 'matplotlib', 'numpy', 'scikit-learn', 'pillow']
+        for package in packages:
+            try:
+                subprocess.check_call([sys.executable, '-m', 'pip', 'install', package])
+            except:
+                print(f"⚠️ Could not install {package}, assuming it's already available")
+        
+        print("✅ Colab environment setup complete")
+        return True
+    return False
+
+def setup_dataset_choice():
+    """Setup dataset choice interface"""
+    print("\n📊 Dataset Selection:")
+    print("=" * 60)
+    print("Choose your training dataset:")
+    print("1. 📤 Upload real soil images (ZIP file)")
+    print("2. 🎨 Generate synthetic soil dataset")
+    print("3. 🔄 Mixed dataset (synthetic + real)")
+    print()
+    
+    if detect_colab():
+        try:
+            choice = input("Enter choice (1/2/3): ").strip()
+            return choice
+        except:
+            print("⚠️ Input not available, defaulting to synthetic dataset")
+            return "2"
+    else:
+        # Check for local dataset
+        if check_local_dataset():
+            return "1"  # Use real data if available locally
+        else:
+            return "2"  # Default to synthetic
+
+def setup_dataset_upload():
+    """Setup dataset upload interface for Colab"""
+    try:
+        from google.colab import files
+        
+        print("📤 Upload your soil dataset ZIP file...")
+        print("Expected structure inside ZIP:")
+        for soil_type in SOIL_LABELS.values():
+            folder_name = soil_type.replace('/', '_').replace(' ', '_')
+            print(f"   📁 {folder_name}/")
+            print(f"      📷 image1.jpg, image2.jpg, ...")
+        print()
+        
+        uploaded = files.upload()
+        
+        if uploaded:
+            # Extract the first ZIP file found
+            for filename in uploaded.keys():
+                if filename.endswith('.zip'):
+                    print(f"📦 Extracting {filename}...")
+                    return extract_dataset(filename)
+                    
+        print("❌ No ZIP file uploaded.")
+        return False
+        
+    except ImportError:
+        print("ℹ️ Not in Colab environment")
+        return False
+
+def check_local_dataset():
+    """Check for local dataset directory"""
+    dataset_paths = ['soil_dataset', 'real_soil_dataset', 'dataset', 'data']
+    
+    for path in dataset_paths:
+        if os.path.exists(path):
+            print(f"✅ Found local dataset at: {path}")
+            return True
+    
+    return False
+
+def extract_dataset(zip_filename):
+    """Extract uploaded dataset ZIP file"""
+    try:
+        with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
+            zip_ref.extractall('uploaded_dataset')
+        
+        # Find the actual dataset folder
+        dataset_root = 'uploaded_dataset'
+        subdirs = [d for d in os.listdir(dataset_root) if os.path.isdir(os.path.join(dataset_root, d))]
+        
+        if len(subdirs) == 1:
+            # Dataset is in a subfolder
+            dataset_root = os.path.join(dataset_root, subdirs[0])
+        
+        # Verify dataset structure
+        soil_folders = []
+        for soil_type in SOIL_LABELS.values():
+            folder_name = soil_type.replace('/', '_').replace(' ', '_')
+            folder_path = os.path.join(dataset_root, folder_name)
+            if os.path.exists(folder_path):
+                soil_folders.append(folder_path)
+        
+        if len(soil_folders) >= 4:  # At least half the soil types
+            print(f"✅ Dataset extracted successfully! Found {len(soil_folders)} soil type folders")
+            return True
+        else:
+            print(f"⚠️ Dataset structure incomplete. Found only {len(soil_folders)} soil type folders")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error extracting dataset: {e}")
+        return False
+
+def load_real_dataset():
+    """Load real soil images from uploaded/local dataset"""
+    print("📂 Loading real soil dataset...")
+    
+    # Find dataset directory
+    dataset_paths = ['uploaded_dataset', 'soil_dataset', 'real_soil_dataset', 'dataset', 'data']
+    dataset_root = None
+    
+    for path in dataset_paths:
+        if os.path.exists(path):
+            dataset_root = path
+            break
+    
+    if not dataset_root:
+        print("❌ No dataset directory found")
+        return None, None
+    
+    # Check for subdirectory
+    subdirs = [d for d in os.listdir(dataset_root) if os.path.isdir(os.path.join(dataset_root, d))]
+    if len(subdirs) == 1 and not any(soil_type.replace('/', '_').replace(' ', '_') in subdirs[0] for soil_type in SOIL_LABELS.values()):
+        dataset_root = os.path.join(dataset_root, subdirs[0])
+    
+    X_list = []
+    y_list = []
+    
+    for soil_idx, soil_type in SOIL_LABELS.items():
+        folder_name = soil_type.replace('/', '_').replace(' ', '_')
+        folder_path = os.path.join(dataset_root, folder_name)
+        
+        if not os.path.exists(folder_path):
+            print(f"⚠️ Folder not found: {folder_path}")
+            continue
+        
+        # Load images from this soil type folder
+        image_files = [f for f in os.listdir(folder_path) 
+                      if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
+        
+        if not image_files:
+            print(f"⚠️ No images found in: {folder_path}")
+            continue
+        
+        print(f"📷 Loading {len(image_files)} images for {soil_type}...")
+        
+        for img_file in image_files[:500]:  # Limit to 500 images per class
+            try:
+                img_path = os.path.join(folder_path, img_file)
+                
+                # Load and preprocess image
+                img = Image.open(img_path).convert('RGB')
+                img = img.resize((INPUT_SIZE, INPUT_SIZE))
+                img_array = np.array(img) / 255.0  # Normalize to [0, 1]
+                
+                X_list.append(img_array)
+                y_list.append(soil_idx)
+                
+            except Exception as e:
+                print(f"⚠️ Error loading {img_file}: {e}")
+                continue
+    
+    if not X_list:
+        print("❌ No images loaded successfully")
+        return None, None
+    
+    X = np.array(X_list, dtype=np.float32)
+    y = np.array(y_list, dtype=np.int32)
+    
+    print(f"✅ Real dataset loaded: {len(X)} images, {len(np.unique(y))} soil types")
+    
+    # Show distribution
+    unique, counts = np.unique(y, return_counts=True)
+    for soil_idx, count in zip(unique, counts):
+        print(f"   {SOIL_LABELS[soil_idx]}: {count} images")
+    
+    return X, y
+
 def main():
     """Main training pipeline"""
     print("🌱 Flutter-Compatible Soil Detection Model Training")
     print("=" * 60)
     
-    # Create output directory
+    # Setup environment
+    in_colab = setup_colab_environment()
+    
+    # Create output directory (Colab-friendly path)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = f"../models/flutter_compatible_{timestamp}"
+    if in_colab:
+        output_dir = f"flutter_compatible_{timestamp}"  # Colab root directory
+    else:
+        output_dir = f"../models/flutter_compatible_{timestamp}"
     os.makedirs(output_dir, exist_ok=True)
     
-    # Generate synthetic data
-    print("\n📊 Step 1: Data Generation")
-    X, y = generate_synthetic_soil_data()
+    # Dataset selection and loading
+    print("\n📊 Step 1: Dataset Selection & Loading")
+    dataset_choice = setup_dataset_choice()
     
-    # Split data
-    split_idx = int(0.8 * len(X))
-    X_train, X_val = X[:split_idx], X[split_idx:]
-    y_train, y_val = y[:split_idx], y[split_idx:]
+    X, y = None, None
+    
+    if dataset_choice == "1":
+        # Real dataset
+        if in_colab:
+            if setup_dataset_upload():
+                X, y = load_real_dataset()
+        else:
+            X, y = load_real_dataset()
+        
+        if X is None:
+            print("⚠️ Real dataset loading failed. Falling back to synthetic data.")
+            X, y = generate_synthetic_soil_data()
+    
+    elif dataset_choice == "3":
+        # Mixed dataset
+        print("🔄 Creating mixed dataset (synthetic + real)...")
+        
+        # Try to load real data first
+        X_real, y_real = None, None
+        if in_colab:
+            if setup_dataset_upload():
+                X_real, y_real = load_real_dataset()
+        else:
+            X_real, y_real = load_real_dataset()
+        
+        # Generate synthetic data
+        X_synthetic, y_synthetic = generate_synthetic_soil_data()
+        
+        # Combine datasets
+        if X_real is not None:
+            print(f"📊 Combining {len(X_real)} real + {len(X_synthetic)} synthetic images")
+            X = np.concatenate([X_real, X_synthetic], axis=0)
+            y = np.concatenate([y_real, y_synthetic], axis=0)
+        else:
+            print("⚠️ No real data available, using synthetic only")
+            X, y = X_synthetic, y_synthetic
+    
+    else:
+        # Synthetic dataset (default)
+        print("🎨 Generating synthetic soil dataset...")
+        X, y = generate_synthetic_soil_data()
+    
+    # Shuffle the combined dataset
+    indices = np.random.permutation(len(X))
+    X, y = X[indices], y[indices]
+    
+    print(f"✅ Final dataset: {len(X)} images, {len(np.unique(y))} soil types")
+    
+    # Split data using sklearn for better stratification
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
     
     print(f"📈 Training samples: {len(X_train)}")
     print(f"📉 Validation samples: {len(X_val)}")
@@ -328,7 +589,11 @@ def main():
         "training_accuracy": float(train_acc),
         "validation_accuracy": float(val_acc),
         "training_loss": float(train_loss),
-        "validation_loss": float(val_loss)
+        "validation_loss": float(val_loss),
+        "dataset_type": "real" if dataset_choice == "1" else ("mixed" if dataset_choice == "3" else "synthetic"),
+        "total_samples": len(X),
+        "training_samples": len(X_train),
+        "validation_samples": len(X_val)
     }
     metadata_path = create_model_metadata(model_path, accuracy_metrics)
     
@@ -367,6 +632,46 @@ def main():
     print(f"🎯 Validation accuracy: {val_acc:.4f}")
     print("\n📱 Model is ready for Flutter integration!")
     print("🔧 Copy the .tflite file to your Flutter app's assets/models/ directory")
+    
+    # Colab download instructions
+    if in_colab:
+        show_colab_download_instructions(model_path, metadata_path, plot_path)
+
+def show_colab_download_instructions(model_path, metadata_path, plot_path):
+    """Show download instructions for Google Colab"""
+    print("\n📥 Google Colab Download Instructions:")
+    print("=" * 60)
+    print("🔽 Download your trained model files:")
+    print()
+    
+    try:
+        from google.colab import files
+        
+        print("📱 Downloading TFLite model...")
+        files.download(model_path)
+        
+        print("📄 Downloading metadata...")
+        files.download(metadata_path)
+        
+        print("📊 Downloading training plots...")
+        files.download(plot_path)
+        
+        print("✅ All files downloaded successfully!")
+        
+    except ImportError:
+        print("⚠️ Not in Colab environment, skipping auto-download")
+    except Exception as e:
+        print(f"⚠️ Auto-download failed: {e}")
+        print("📋 Manual download commands:")
+        print(f"   files.download('{model_path}')")
+        print(f"   files.download('{metadata_path}')")
+        print(f"   files.download('{plot_path}')")
+    
+    print("\n🚀 Next Steps:")
+    print("1. 📱 Copy the .tflite file to your Flutter app: assets/models/")
+    print("2. 🔧 Update your Flutter app to use the new model")
+    print("3. 🧪 Test the model with real soil images")
+    print("4. 📊 Monitor performance on target devices")
 
 if __name__ == "__main__":
     main()
