@@ -958,7 +958,6 @@ def main():
     print("\n🧪 Testing Flutter compatibility of generated model...")
     try:
         import subprocess
-        import os
         
         # Download the test script if it doesn't exist
         test_script = "test_flutter_compatibility.py"
@@ -993,7 +992,6 @@ def show_colab_download_instructions(model_path, metadata_path, plot_path):
     
     try:
         from google.colab import files
-        import os
         
         # Check if files exist before trying to download
         if os.path.exists(model_path):
