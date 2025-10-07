@@ -226,8 +226,8 @@ def generate_synthetic_soil_data():
         
         return img
     
-    # Generate balanced dataset (memory-optimized)
-    samples_per_class = 800  # Balanced between accuracy and memory efficiency
+    # Generate balanced dataset (memory-optimized for Colab)
+    samples_per_class = 400  # Reduced to prevent memory allocation warnings
     total_samples = samples_per_class * NUM_CLASSES
     
     print(f"📊 Generating {samples_per_class} samples per class...")
@@ -266,28 +266,21 @@ def generate_synthetic_soil_data():
         X_tensor = tf.concat(X_tensor_list, axis=0)
         y_tensor = tf.concat(y_tensor_list, axis=0)
         
-        # Create dataset and shuffle on GPU
+        # Create dataset and shuffle on GPU - keep everything on GPU!
+        print("🚀 Creating GPU-only training pipeline...")
         dataset = tf.data.Dataset.from_tensor_slices((X_tensor, y_tensor))
         dataset = dataset.shuffle(buffer_size=min(10000, total_samples), seed=42)
         
-        # Convert back to numpy in smaller chunks to avoid RAM spike
-        print("📥 Converting to numpy arrays in memory-efficient chunks...")
-        X_chunks = []
-        y_chunks = []
+        # Split into train/validation on GPU
+        train_size = int(0.8 * total_samples)
+        train_dataset = dataset.take(train_size)
+        val_dataset = dataset.skip(train_size)
         
-        chunk_size = 1000
-        for batch in dataset.batch(chunk_size):
-            X_batch, y_batch = batch
-            X_chunks.append(X_batch.numpy())
-            y_chunks.append(y_batch.numpy())
+        print(f"📈 Training samples: {train_size}")
+        print(f"📉 Validation samples: {total_samples - train_size}")
         
-        # Concatenate chunks
-        X = np.concatenate(X_chunks, axis=0)
-        y = np.concatenate(y_chunks, axis=0)
-        
-        # Clear GPU memory
-        del X_tensor, y_tensor, dataset
-        tf.keras.backend.clear_session()
+        # Return GPU datasets instead of numpy arrays
+        return train_dataset, val_dataset, total_samples
         
     else:
         # CPU fallback generation
@@ -312,16 +305,26 @@ def generate_synthetic_soil_data():
         print("🔀 Shuffling dataset...")
         indices = np.random.permutation(len(X))
         X, y = X[indices], y[indices]
+        
+        # Split into train/validation
+        from sklearn.model_selection import train_test_split
+        X_train, X_val, y_train, y_val = train_test_split(
+            X, y, test_size=0.2, random_state=42, stratify=y
+        )
+        
+        print(f"📈 Training samples: {len(X_train)}")
+        print(f"📉 Validation samples: {len(X_val)}")
+        
+        # Return numpy arrays for CPU path
+        return (X_train, y_train), (X_val, y_val), len(X)
     
-    print(f"✅ Synthetic dataset created: {len(X)} samples")
+    print(f"✅ Synthetic dataset created: {total_samples} samples")
     
     # Performance summary
     if use_gpu:
-        print("⚡ GPU acceleration used for data generation - much faster!")
+        print("⚡ GPU acceleration used - everything stays on GPU!")
     else:
         print("🔄 CPU generation completed - consider GPU for faster data creation")
-    
-    return X, y
 
 def convert_to_flutter_tflite(model, output_path):
     """Convert model to Flutter-compatible TensorFlow Lite"""
@@ -741,21 +744,38 @@ def main():
     else:
         # Synthetic dataset (default)
         print("🎨 Generating synthetic soil dataset...")
-        X, y = generate_synthetic_soil_data()
+        result = generate_synthetic_soil_data()
     
-    # Shuffle the combined dataset
-    indices = np.random.permutation(len(X))
-    X, y = X[indices], y[indices]
-    
-    print(f"✅ Final dataset: {len(X)} images, {len(np.unique(y))} soil types")
-    
-    # Split data using sklearn for better stratification
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-    
-    print(f"📈 Training samples: {len(X_train)}")
-    print(f"📉 Validation samples: {len(X_val)}")
+    # Handle different return types (GPU datasets vs CPU numpy arrays)
+    if len(result) == 3 and hasattr(result[0], 'batch'):  # GPU datasets
+        train_dataset, val_dataset, total_samples = result
+        
+        # Prepare datasets for training
+        train_dataset = train_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+        val_dataset = val_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+        
+        print(f"✅ GPU-only pipeline ready: {total_samples} total samples")
+        use_gpu_datasets = True
+        
+    else:  # CPU numpy arrays or mixed datasets
+        if len(result) == 3:  # CPU path
+            (X_train, y_train), (X_val, y_val), total_samples = result
+        else:  # Mixed dataset path (fallback)
+            X, y = result
+            # Shuffle and split
+            indices = np.random.permutation(len(X))
+            X, y = X[indices], y[indices]
+            
+            print(f"✅ Final dataset: {len(X)} images, {len(np.unique(y))} soil types")
+            
+            X_train, X_val, y_train, y_val = train_test_split(
+                X, y, test_size=0.2, random_state=42, stratify=y
+            )
+            
+            print(f"📈 Training samples: {len(X_train)}")
+            print(f"📉 Validation samples: {len(X_val)}")
+        
+        use_gpu_datasets = False
     
     # Create model
     print("\n🏗️ Step 2: Model Creation")
@@ -800,21 +820,36 @@ def main():
         )
     ]
     
-    print(f"🎯 Training with {len(X_train)} samples, validating with {len(X_val)} samples")
+    if not use_gpu_datasets:
+        print(f"🎯 Training with {len(X_train)} samples, validating with {len(X_val)} samples")
+    else:
+        print(f"🎯 Training with GPU datasets (no CPU RAM usage)")
     print("🚀 Starting training...")
     
     # Start training with optimized settings
     start_time = datetime.now()
     
-    history = model.fit(
-        X_train, y_train,
-        batch_size=BATCH_SIZE,
-        epochs=EPOCHS,
-        validation_data=(X_val, y_val),
-        callbacks=callbacks,
-        verbose=1,
-        shuffle=True
-    )
+    # Train with appropriate data format
+    if use_gpu_datasets:
+        print("🚀 Training with GPU-only pipeline (no CPU RAM usage)...")
+        history = model.fit(
+            train_dataset,
+            epochs=EPOCHS,
+            validation_data=val_dataset,
+            callbacks=callbacks,
+            verbose=1
+        )
+    else:
+        print("🔄 Training with CPU/mixed data...")
+        history = model.fit(
+            X_train, y_train,
+            batch_size=BATCH_SIZE,
+            epochs=EPOCHS,
+            validation_data=(X_val, y_val),
+            callbacks=callbacks,
+            verbose=1,
+            shuffle=True
+        )
     
     end_time = datetime.now()
     actual_time = (end_time - start_time).total_seconds() / 60
@@ -822,8 +857,13 @@ def main():
     
     # Evaluate model
     print("\n📊 Step 4: Model Evaluation")
-    train_loss, train_acc = model.evaluate(X_train, y_train, verbose=0)
-    val_loss, val_acc = model.evaluate(X_val, y_val, verbose=0)
+    if use_gpu_datasets:
+        print("📊 Evaluating GPU-only pipeline...")
+        train_loss, train_acc = model.evaluate(train_dataset, verbose=0)
+        val_loss, val_acc = model.evaluate(val_dataset, verbose=0)
+    else:
+        train_loss, train_acc = model.evaluate(X_train, y_train, verbose=0)
+        val_loss, val_acc = model.evaluate(X_val, y_val, verbose=0)
     
     print(f"📈 Training Accuracy: {train_acc:.4f}")
     print(f"📉 Validation Accuracy: {val_acc:.4f}")
