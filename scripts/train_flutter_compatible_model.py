@@ -966,7 +966,10 @@ def main():
     
     # Colab download instructions
     if in_colab:
-        show_colab_download_instructions(model_path, metadata_path, plot_path if plot_path else "training_history.png")
+        # Handle None values for failed file creation
+        safe_metadata_path = metadata_path if metadata_path else model_path.replace('.tflite', '_info.json')
+        safe_plot_path = plot_path if plot_path else os.path.join(output_dir, "training_history.png")
+        show_colab_download_instructions(model_path, safe_metadata_path, safe_plot_path)
         
     # Test Flutter compatibility
     print("\n🧪 Testing Flutter compatibility of generated model...")
@@ -1008,23 +1011,23 @@ def show_colab_download_instructions(model_path, metadata_path, plot_path):
         from google.colab import files
         
         # Check if files exist before trying to download
-        if os.path.exists(model_path):
+        if model_path and os.path.exists(model_path):
             print("📱 Downloading TFLite model...")
             files.download(model_path)
         else:
             print(f"⚠️ Model file not found: {model_path}")
         
-        if os.path.exists(metadata_path):
+        if metadata_path and os.path.exists(metadata_path):
             print("📄 Downloading metadata...")
             files.download(metadata_path)
         else:
-            print(f"⚠️ Metadata file not found: {metadata_path}")
+            print(f"⚠️ Metadata file not found or path is None: {metadata_path}")
         
-        if os.path.exists(plot_path):
+        if plot_path and os.path.exists(plot_path):
             print("📊 Downloading training plots...")
             files.download(plot_path)
         else:
-            print(f"⚠️ Plot file not found: {plot_path}")
+            print(f"⚠️ Plot file not found or path is None: {plot_path}")
         
         print("✅ Available files downloaded successfully!")
         
