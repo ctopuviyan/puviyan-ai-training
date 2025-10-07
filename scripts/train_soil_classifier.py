@@ -811,45 +811,41 @@ def create_synthetic_dataset():
     return (X_train, y_train), (X_val, y_val)
 
 def create_model(use_sparse_labels=False):
-    """Create the soil classification model optimized for GPU"""
-    print("🏗️ Creating soil classification model...")
+    """Create Flutter-compatible soil classification model"""
+    print("🏗️ Creating Flutter-compatible soil classification model...")
+    print("📱 Using only TFLite built-in operations for maximum compatibility")
     
-    # Enable mixed precision for GPU optimization (if available)
-    try:
-        if tf.config.list_physical_devices('GPU'):
-            policy = tf.keras.mixed_precision.Policy('mixed_float16')
-            tf.keras.mixed_precision.set_global_policy(policy)
-            print("✅ Mixed precision enabled for faster GPU training")
-    except:
-        print("ℹ️ Mixed precision not available, using float32")
+    # Note: Avoiding mixed precision and BatchNorm for Flutter compatibility
     
     model = keras.Sequential([
         # Input layer
         layers.Input(shape=(INPUT_SIZE, INPUT_SIZE, 3)),
         
-        # Feature extraction layers (GPU-optimized with BatchNorm)
+        # Feature extraction layers (Flutter-compatible, no BatchNorm)
         layers.Conv2D(32, 3, strides=2, padding='same', activation='relu'),
-        layers.BatchNormalization(),
+        layers.Dropout(0.1),  # Light regularization instead of BatchNorm
         
         layers.Conv2D(64, 3, padding='same', activation='relu'),
-        layers.BatchNormalization(),
         layers.MaxPooling2D(2),
+        layers.Dropout(0.1),
         
         layers.Conv2D(128, 3, padding='same', activation='relu'),
-        layers.BatchNormalization(),
         layers.MaxPooling2D(2),
+        layers.Dropout(0.2),
         
         layers.Conv2D(256, 3, padding='same', activation='relu'),
-        layers.BatchNormalization(),
         layers.MaxPooling2D(2),
+        layers.Dropout(0.2),
         
-        # Global average pooling instead of flatten (reduces parameters)
+        # Additional conv layer for better feature extraction
+        layers.Conv2D(512, 3, padding='same', activation='relu'),
         layers.GlobalAveragePooling2D(),
         
-        # Classification head
+        # Classification head (Flutter-compatible)
         layers.Dropout(0.5),
+        layers.Dense(256, activation='relu'),
+        layers.Dropout(0.3),
         layers.Dense(128, activation='relu'),
-        layers.BatchNormalization(),
         layers.Dropout(0.3),
         layers.Dense(NUM_CLASSES, activation='softmax', dtype='float32')  # Keep output as float32
     ])
@@ -984,20 +980,30 @@ def convert_to_tflite(model, output_path):
     """Convert Keras model to TensorFlow Lite"""
     print("📱 Converting to TensorFlow Lite...")
     
-    # Convert to TensorFlow Lite with TF Select ops for compatibility
+    # Convert to Flutter-compatible TensorFlow Lite model
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     
-    # Enable TF Select ops to handle BatchNormalization and other ops
+    # CRITICAL: Use ONLY TFLite built-in ops for Flutter compatibility
+    # DO NOT use SELECT_TF_OPS as it's not supported by Flutter TFLite
     converter.target_spec.supported_ops = [
-        tf.lite.OpsSet.TFLITE_BUILTINS,  # Standard TFLite ops
-        tf.lite.OpsSet.SELECT_TF_OPS     # TensorFlow ops (for BatchNorm, etc.)
+        tf.lite.OpsSet.TFLITE_BUILTINS  # Only standard TFLite ops
     ]
     
-    # Optimize for mobile deployment
+    # Enable optimizations for mobile deployment
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     
-    # Use float16 quantization for smaller model size
-    converter.target_spec.supported_types = [tf.float16]
+    # Use representative dataset for better quantization
+    def representative_data_gen():
+        for _ in range(100):
+            # Generate representative data matching model input
+            yield [np.random.random((1, INPUT_SIZE, INPUT_SIZE, 3)).astype(np.float32)]
+    
+    converter.representative_dataset = representative_data_gen
+    
+    # Enable integer quantization for smaller size and faster inference
+    converter.target_spec.supported_types = [tf.int8]
+    converter.inference_input_type = tf.uint8  # Flutter-friendly input type
+    converter.inference_output_type = tf.uint8  # Flutter-friendly output type
     
     # Convert
     tflite_model = converter.convert()
