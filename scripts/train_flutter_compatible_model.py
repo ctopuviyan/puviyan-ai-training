@@ -36,7 +36,7 @@ from sklearn.model_selection import train_test_split
 MODEL_NAME = "soil_classifier_flutter_compatible"
 INPUT_SIZE = 224
 NUM_CLASSES = 8
-BATCH_SIZE = 64  # Increased for GPU optimization (was 32)
+BATCH_SIZE = 80  # Optimized for better GPU utilization
 EPOCHS = 50
 LEARNING_RATE = 0.001
 
@@ -226,8 +226,8 @@ def generate_synthetic_soil_data():
         
         return img
     
-    # Generate balanced dataset (reduced size for better performance)
-    samples_per_class = 500  # Reduced from 1000 to prevent memory issues
+    # Generate balanced dataset (optimized for available GPU memory)
+    samples_per_class = 1500  # Increased for better model accuracy with available GPU memory
     total_samples = samples_per_class * NUM_CLASSES
     
     print(f"📊 Generating {samples_per_class} samples per class...")
@@ -239,7 +239,7 @@ def generate_synthetic_soil_data():
         X_list = []
         y_list = []
         
-        batch_size = 100  # Generate in batches for memory efficiency
+        batch_size = 200  # Increased batch size for better GPU utilization
         
         for soil_type in range(NUM_CLASSES):
             print(f"🚀 Generating {samples_per_class} samples for {SOIL_LABELS[soil_type]} (GPU)...")
@@ -457,12 +457,14 @@ def setup_gpu_optimization():
                             free_gb = int(free) / 1024
                             if free_gb >= 8:
                                 suggested_batch = MAX_BATCH_SIZE
+                            elif free_gb >= 6:
+                                suggested_batch = 96
                             elif free_gb >= 4:
-                                suggested_batch = 64
+                                suggested_batch = 80
                             elif free_gb >= 2:
-                                suggested_batch = 32
+                                suggested_batch = 64
                             else:
-                                suggested_batch = MIN_BATCH_SIZE
+                                suggested_batch = 48  # Increased minimum for better GPU utilization
                             
                             global BATCH_SIZE
                             BATCH_SIZE = suggested_batch
